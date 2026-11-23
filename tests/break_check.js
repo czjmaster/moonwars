@@ -13983,8 +13983,8 @@ const BREAKS = [
   {
     name: "#176 a dead hull's engines still run",
     file: F('ship.js'),
-    from: "    if ((this.hull ?? 1) <= 0) return false;\n    const e = this.getSystem?.('engines');",
-    to:   "    const e = this.getSystem?.('engines');",
+    from: "    if ((this.hull ?? 1) <= 0) return false;\n    if (this.isDerelict) return false;",
+    to:   "    if (this.isDerelict) return false;",
   },
   {
     name: "#176 theirs burn the way yours do (not mirrored)",
@@ -14451,7 +14451,7 @@ const BREAKS = [
   {
     name: "#182 a record costs nothing",
     file: F("finish.js"),
-    from: "    if (!Commander.spendKnowledge(cap, RECORD_COST)) return null;\n",
+    from: "    if (cost > 0 && !Commander.spendKnowledge(cap, cost)) return null;\n",
     to:   "",
   },
   {
@@ -14553,7 +14553,7 @@ const BREAKS = [
   {
     name: "#182 no hand signs on after a MERCY",
     file: F("game.js"),
-    from: "    if (_playerShip && _playerShip.crew.length < 8) result.crew = 1;\n",
+    from: "      if (_playerShip && _playerShip.crew.length < 8) pool.push(['crew', 12]);\n",
     to:   "",
   },
   {
@@ -18115,6 +18115,79 @@ const BREAKS = [
     from: "  bunker_small: { w: 1008, h: 378, ox: 256, oy: 78,\n    sockets: true,\n",
     to:   "  bunker_small: { w: 1008, h: 378, ox: 256, oy: 78,\n",
   },
+  /* ── update254: jj 23.11 — the wreck in the docking, the patrol on an event, the build, tips on the base, two cards, He-3, a free fatality ── */
+  {
+    name: "#254 the wreck's drives burn",
+    file: F('ship.js'),
+    from: "    if (this.isDerelict) return false;       // a wreck burns nothing (update254: her drives were lit in the docking)\n",
+    to:   "",
+  },
+  {
+    name: "#254 the wreck looks whole in the docking",
+    file: F('wreck.js'),
+    from: "      if (s === wreck) _drawWreckDamage(ctx, b, _t);\n",
+    to:   "",
+  },
+  {
+    name: "#254 the patrol instead of a fight",
+    file: F('patrol.js'),
+    from: "  KINDS: ['event'],",
+    to:   "  KINDS: ['combat', 'event', 'empty', 'nebula', 'asteroids'],",
+  },
+  {
+    name: "#254 the patrol odds back to 30%",
+    file: F('patrol.js'),
+    from: "  ODDS: 0.50,",
+    to:   "  ODDS: 0.30,",
+  },
+  {
+    name: "#254 the old build number",
+    file: F('game.js'),
+    from: "const GAME_VERSION = '0.254';",
+    to:   "const GAME_VERSION = '0.1';",
+  },
+  {
+    name: "#254 no item tips on the base",
+    file: F('game.js'),
+    from: "{ BaseScreen.draw(ctx); BaseScreen.drawTips?.(ctx); }",
+    to:   "{ BaseScreen.draw(ctx); }",
+  },
+  {
+    name: "#254 three reward cards",
+    file: F('game.js'),
+    from: "    if (keys.length > PICK_MAX) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#254 the reward not on a card is taken too",
+    file: F('game.js'),
+    from: "    _eventRewards(choice.result).forEach(k => delete base[k]);",
+    to:   "    keys.forEach(k => delete base[k]);",
+  },
+  {
+    name: "#254 no He-3 into the hold",
+    file: F('game.js'),
+    from: "    if (result.he3 && _playerShip?.cargo) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#254 a fatality costs knowledge",
+    file: F('finish.js'),
+    from: "  function recordCost(def) { return def?.kind === 'fatality' ? 0 : RECORD_COST; }",
+    to:   "  function recordCost(def) { return RECORD_COST; }",
+  },
+  {
+    name: "#254 the mercy always a hand or a gun",
+    file: F('game.js'),
+    from: "      const pool = [['fuel', 25], ['air', 25], ['he3', 20]];",
+    to:   "      const pool = [];",
+  },
+  {
+    name: "#254 He-3 has no card",
+    file: F('rewardview.js'),
+    from: "      case 'he3': return { kind: 'he3', badge: `+${n} He-3` };\n",
+    to:   "",
+  },
   /* ── update253: jj 22.11 22:27 — menu, helmet, gifts, their repair, litres, marks, bodies, puffs, F5, tips, the man on the card, the lift, the base, sound, surrender, score ── */
   {
     name: "#253 no way to the main menu",
@@ -18233,7 +18306,7 @@ const BREAKS = [
   {
     name: "#253 no KIT in the loadout",
     file: F('basescreen.js'),
-    from: "      _btn(ctx, C.x + C.w - 74, C.y, 74, C.h, '◆ KIT', { act: 'cpu', arg: cap.id, col: '#ffd060', font: '12px Orbitron, monospace', sub: 'tablets · skills' });\n",
+    from: "      _kitBadge(ctx, C.x + C.w - 30, C.y + 6, cap.id);       // update254: small, on his card (jj: „ładniejszy, razem z kapitanem\")\n",
     to:   "",
   },
   {

@@ -7855,6 +7855,7 @@ class Ship {
    */
   enginesRunning() {
     if ((this.hull ?? 1) <= 0) return false;
+    if (this.isDerelict) return false;       // a wreck burns nothing (update254: her drives were lit in the docking)
     const e = this.getSystem?.('engines');
     if (!e) return false;
     if (typeof Tanks !== 'undefined' && Tanks.dry?.(this)) return false;   // nothing to burn (update203)

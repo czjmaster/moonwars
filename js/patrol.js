@@ -52,10 +52,13 @@ const PATROL = {
   /* WHERE (jj: „czasem pod koniec sektora"): a roll on every jump into one of
      the last COLS_BEFORE_EXIT columns before the exit (or the boss), once a
      sector. A hold with contraband in it draws them more often. */
-  ODDS: 0.30,
-  ODDS_HOT: 0.50,
+  /* …ON AN EVENT, 50/50 (update254, jj 23.11: „scan statek ma być oznaczony jako event, zmień z enemy na event —
+     50/50, że będzie, nie zawsze jest, na końcu sektorów"): she meets you only on a „?" node near the end, half the
+     time — never in place of a fight marked ENEMY. */
+  ODDS: 0.50,
+  ODDS_HOT: 0.70,
   COLS_BEFORE_EXIT: 2,
-  KINDS: ['combat', 'event', 'empty', 'nebula', 'asteroids'],   // what she can turn up instead of
+  KINDS: ['event'],                    // what she can turn up instead of
   /* the talk */
   HAIL_DELAY: 1.2,     // s alongside before the first call
   COMPLY_DELAY: 2.5,   // s after you power down before she calls to scan

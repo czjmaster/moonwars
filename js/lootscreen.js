@@ -701,8 +701,12 @@ const LootScreen = (() => {
   }
   function _drawHoverTip(ctx) {
     const it = hoverItem();
+    if (it) drawTip(ctx, it, Input.mouse.x, Input.mouse.y);
+  }
+  /** The tip box of an item at the mouse — here, and on the base's loadout and SUPPLY (update254). */
+  function drawTip(ctx, it, mx, my) {
     if (!it) return;
-    const mx = Input.mouse.x, my = Input.mouse.y, lines = tipLines(it);
+    const lines = tipLines(it);
     ctx.save();
     ctx.font = '11px Share Tech Mono, monospace';
     /* a long description wraps at 300 px */
@@ -1407,7 +1411,7 @@ const LootScreen = (() => {
            forceClose: () => (_hold && !_done ? _finish() : null),
            // exposed for tests — button positions shift as buttons are
            // added, so tests ask for them by name instead of guessing.
-           _cellAt, _gridRect, sidePanels, _act, hoverItem, tipLines,
+           _cellAt, _gridRect, sidePanels, _act, hoverItem, tipLines, drawTip,
            /** The two grids this screen is editing, BY IDENTITY.
             *  A test that only compares contents cannot tell one shelf
             *  from a copy of it — and a copy of the shelf was exactly

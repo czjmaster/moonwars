@@ -194,10 +194,13 @@ const Finish = (() => {
     if (def.kind === 'mercy' && (_f.enemy?.crew ?? []).every(c => !c.alive || c.isPet || c.isPrisoner)) {
       return `${def.label} — nobody left aboard to strike their colours.`;
     }
-    const have = Commander.knowledge(cap);
-    if (have < RECORD_COST) return `${def.label} — not enough knowledge (${RECORD_COST} needed, ${Math.floor(have)} left).`;
+    const have = Commander.knowledge(cap), cost = recordCost(def);
+    if (have < cost) return `${def.label} — not enough knowledge (${cost} needed, ${Math.floor(have)} left).`;
     return null;
   }
+  /* A FATALITY COSTS NO KNOWLEDGE (update254, jj 23.11: „te fatality nie powinno zabierać wiedzy chyba"): the papyrus
+     is spent finishing them; a MERCY still costs RECORD_COST. */
+  function recordCost(def) { return def?.kind === 'fatality' ? 0 : RECORD_COST; }
 
   function _check(ev) {
     if (!_f || _f.used || !finishing()) return null;
@@ -214,7 +217,8 @@ const Finish = (() => {
   /* ── IT FIRES ───────────────────────────────────────────────── */
   function _fire(cap, key) {
     const def = RECORD_DEFS[key];
-    if (!Commander.spendKnowledge(cap, RECORD_COST)) return null;
+    const cost = recordCost(def);
+    if (cost > 0 && !Commander.spendKnowledge(cap, cost)) return null;
     _f.used = true;
     _call = null;
     const kind = def.kind;
@@ -711,7 +715,7 @@ const Finish = (() => {
   }
 
   return {
-    begin, end, update, draw,
+    begin, end, update, draw, recordCost,
     noteHit, noteShot, noteDeath,
     finishing, fightRefusal, refusal, pending, peekPending,
     busy, sceneDone, drawScene, hullTransform, sceneBursts, scene: () => _scene, saluting, _drawFireworks, FIREWORKS,

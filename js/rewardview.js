@@ -43,6 +43,7 @@ const RewardView = (() => {
     if (d.burned?.length) return { kind: 'burnout', sys: d.burned[0], badge: 'BURNED OUT' };
     if ((d.fuel ?? 0) > 0) return { kind: 'fuel', badge: `+${_L(d.fuel)} L He2` };
     if ((d.air ?? 0) > 0) return { kind: 'air', badge: `+${d.air} L AIR` };
+    if ((d.he3 ?? 0) > 0) return { kind: 'he3', badge: `+${d.he3} He-3` };
     if ((d.missiles ?? 0) > 0) return { kind: 'missiles', badge: `+${d.missiles} MSL` };
     if ((d.cc ?? 0) > 0) return { kind: 'cc', badge: `+${d.cc} CC` };
     if ((d.fuel ?? 0) < 0) return { kind: 'fuelBurn', badge: `−${_L(-d.fuel)} L He2` };
@@ -68,6 +69,7 @@ const RewardView = (() => {
     if (d.burned?.length) add({ kind: 'burnout', sys: d.burned[0], badge: 'BURNED OUT' });
     if ((d.fuel ?? 0) > 0) add({ kind: 'fuel', badge: `+${_L(d.fuel)} L He2` });
     if ((d.air ?? 0) > 0) add({ kind: 'air', badge: `+${d.air} L AIR` });
+    if ((d.he3 ?? 0) > 0) add({ kind: 'he3', badge: `+${d.he3} He-3` });
     if ((d.missiles ?? 0) > 0) add({ kind: 'missiles', badge: `+${d.missiles} MSL` });
     if ((d.cc ?? 0) > 0) add({ kind: 'cc', badge: `+${d.cc} CC` });
     if ((d.fuel ?? 0) < 0) add({ kind: 'fuelBurn', badge: `−${_L(-d.fuel)} L He2` });
@@ -88,7 +90,7 @@ const RewardView = (() => {
 
   const TINT = {
     crew: '#4db8ff', pet: '#ffd780', upgrade: '#1aff8c', hurt: '#ff5566', burnout: '#ff7c20',
-    fuel: '#4dd8c0', fuelBurn: '#ffb020', air: '#8fe4ff', airLost: '#ffb020', missiles: '#ffb347', cc: '#ffd700', paid: '#ff9a50',
+    fuel: '#4dd8c0', fuelBurn: '#ffb020', air: '#8fe4ff', he3: '#cfe4ff', airLost: '#ffb020', missiles: '#ffb347', cc: '#ffd700', paid: '#ff9a50',
     gun: '#ff7c20', crewOffer: '#4db8ff',
     karmaUp: '#1aff8c', karmaDown: '#ff5566', nothing: '#4a6080',
   };
@@ -190,6 +192,15 @@ const RewardView = (() => {
         ctx.fillStyle = gain ? `rgba(200,255,240,${0.7 * (1 - q)})` : `rgba(255,${150 + Math.round(r() * 80)},60,${1 - q})`;
         ctx.fillRect(cx - w / 2 + r() * w, cy - h / 2 - 6 - q * 30, 2, 2);
       }
+    } else if (kind === 'he3' && typeof LootScreen !== 'undefined' && LootScreen.drawCargoItem && typeof CargoItem !== 'undefined') {
+      /* HE-3 ORE (update254): the crates as they lie in a hold, three of them, glinting */
+      const it = new CargoItem('he3_ore'), sc = 2.2, C = (LootScreen.CELL ?? 36) * sc;
+      [[-C * 0.9, 6], [0, -10], [C * 0.9, 6]].forEach(([dx, dy], i) => {
+        ctx.save(); ctx.translate(cx + dx, cy + dy + Math.sin(t * 2 + i) * 2); ctx.scale(sc, sc);
+        try { LootScreen.drawCargoItem(ctx, it, -C / sc / 2, -C / sc / 2, 1, false, false); } catch (e) { /* a picture only */ }
+        ctx.restore();
+      });
+      if (Math.floor(t * 3) % 2 === 0) { ctx.fillStyle = '#e8f6ff'; ctx.fillRect(cx + 10, cy - 24, 2, 6); ctx.fillRect(cx + 8, cy - 22, 6, 2); }
     } else if (kind === 'gun' && pic.key && typeof Renderer !== 'undefined' && Renderer.drawWeaponIcon) {
       Renderer.drawWeaponIcon(ctx, pic.key, cx - 54, cy - 30, 108, 44, {});
       ctx.fillStyle = '#c8d8f0'; ctx.font = '11px Share Tech Mono, monospace'; ctx.textAlign = 'center';
@@ -330,6 +341,7 @@ const RewardView = (() => {
       case 'fuel': return { kind: 'fuel', badge: `+${Array.isArray(v) ? `${_L(v[0])}–${_L(v[1])}` : _L(v)} L He2` };
       case 'tankFuel': return { kind: 'fuel', badge: 'He2 TANK' };
       case 'air': return { kind: 'air', badge: `+${n} L AIR` };
+      case 'he3': return { kind: 'he3', badge: `+${n} He-3` };
       case 'tankAir': return { kind: 'air', badge: 'AIR TANK' };
       case 'weaponReward': return { kind: 'gun', key: v, label: (typeof WEAPON_DEFS !== 'undefined' && WEAPON_DEFS[v]?.label) || 'a gun', badge: 'WEAPON' };
       case 'system_upgrade': return { kind: 'upgrade', sys: { type: v, level: 2, def: { maxLevel: 4 } }, badge: `${String(v).toUpperCase()} +1` };

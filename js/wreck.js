@@ -121,7 +121,7 @@ const DockingGame = (() => {
     const k = _result ? 0 : Math.max(0, 1 - _t / 2.2);
     const dx = DRIFT * (k * k);
     /* each hull scaled into its half of the band under the panel, closed, facing the other */
-    [[you, 320, 0], [wreck, 925, dx]].forEach(([s, cx, ox]) => {
+    [[you, 320, 0], [wreck, 895, dx]].forEach(([s, cx, ox]) => {
       if (!s?.draw || !s.roomBounds) return;
       const b = s.roomBounds();
       const sc = Math.min(0.9, 520 / (b.w + 140), 210 / (b.h + 90));
@@ -129,14 +129,48 @@ const DockingGame = (() => {
       s.roofAlpha = 1;
       ctx.save();
       ctx.translate(cx + ox, 585 + Math.sin(_t * 0.9 + (s === wreck ? 1.7 : 0)) * 2);
+      /* A WRECK, NOT A SHIP (update254, jj 23.11, the screenshot: the derelict looked like the fighting ship of the
+         title screen): she lists a little and turns slowly, darker, burnt, holed, sparking, her drives cold. */
+      if (s === wreck) ctx.rotate(-0.07 + Math.sin(_t * 0.25) * 0.015);
       ctx.scale(sc, sc);
       ctx.translate(-(b.x + b.w / 2), -(b.y + b.h / 2));
-      if (s === wreck && 'filter' in ctx) ctx.filter = 'brightness(0.55) saturate(0.5)';   // she is dead in the water
+      if (s === wreck && 'filter' in ctx) ctx.filter = 'brightness(0.42) saturate(0.35) sepia(0.25)';   // she is dead in the water
       try { s.draw(ctx); } catch (e) { /* a picture still loading: no hull this frame */ }
+      if ('filter' in ctx) ctx.filter = 'none';
+      if (s === wreck) _drawWreckDamage(ctx, b, _t);
       ctx.restore();
       s.roofAlpha = keep;
     });
     return true;
+  }
+
+  /** Burns, holes torn open to the dark, and sparks off a severed cable — over a derelict, in her own frame. */
+  function _drawWreckDamage(ctx, b, t) {
+    let h = 0x5eed;
+    const r = () => { h = (Math.imul(h, 1103515245) + 12345) >>> 0; return (h >>> 8) / 16777216; };
+    ctx.save();
+    for (let i = 0; i < 7; i++) {                                     // scorch
+      const x = b.x + b.w * (0.08 + r() * 0.84), y = b.y + b.h * (0.1 + r() * 0.8), rr = 18 + r() * 34;
+      const g = ctx.createRadialGradient ? ctx.createRadialGradient(x, y, 0, x, y, rr) : null;
+      if (g) { g.addColorStop(0, 'rgba(8,6,4,0.85)'); g.addColorStop(1, 'rgba(8,6,4,0)'); ctx.fillStyle = g; }
+      else ctx.fillStyle = 'rgba(8,6,4,0.5)';
+      ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.fill();
+    }
+    const holes = [];
+    for (let i = 0; i < 3; i++) {                                     // holes, jagged, to the dark
+      const x = b.x + b.w * (0.15 + r() * 0.7), y = b.y + b.h * (0.15 + r() * 0.7), rr = 10 + r() * 14;
+      holes.push([x, y, rr]);
+      ctx.beginPath();
+      for (let k = 0; k < 9; k++) { const a = k / 9 * Math.PI * 2, q = rr * (0.6 + r() * 0.6); k ? ctx.lineTo(x + Math.cos(a) * q, y + Math.sin(a) * q) : ctx.moveTo(x + Math.cos(a) * q, y + Math.sin(a) * q); }
+      ctx.closePath(); ctx.fillStyle = '#020305'; ctx.fill();
+      ctx.strokeStyle = 'rgba(255,120,40,0.35)'; ctx.lineWidth = 2; ctx.stroke();
+    }
+    const [sx, sy] = holes[0] ?? [b.x + b.w / 2, b.y + b.h / 2];      // sparks out of the first hole
+    if (Math.sin(t * 11) > 0.6) {
+      ctx.fillStyle = '#ffe08a';
+      for (let k = 0; k < 4; k++) ctx.fillRect(sx + Math.sin(t * 37 + k) * 10, sy + Math.cos(t * 29 + k * 2) * 8, 3, 3);
+    }
+    ctx.restore();
   }
 
   function draw(ctx) {

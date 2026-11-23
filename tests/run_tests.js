@@ -39843,7 +39843,7 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
     ok(/they are finished/.test(CombatManager.fireRefusal(enemy.weapons[0] ?? { def: {} }) ?? ''), 'and our guns hold while it plays');
     tick(FINISH.SCENE_FATAL + 0.1);
     ok(enemy.hull === 0 && enemy.destroyed && enemy.fatality && !enemy.doomed, 'then their ship goes — the ordinary victory follows');
-    ok(Commander.knowledge(cap) === k0 - 8, `8 knowledge (${k0} → ${Commander.knowledge(cap)})`);
+    ok(Commander.knowledge(cap) === k0, `update254: a FATALITY costs no knowledge (${k0} → ${Commander.knowledge(cap)})`);
     ok(cap.karma === karma0 - 2, `karma −2 (${karma0} → ${cap.karma})`);
     ok(Finish.banner()?.word === 'ECLIPSE' && Finish.banner().title === 'MELTDOWN', 'the big banner: ECLIPSE · MELTDOWN (update190: our word for it)');
     ok(Finish.spoken().some(s => /^ECLIPSE\.\.\. meltdown$/.test(s)) && !Finish.spoken().some(s => /FATALITY/.test(s)), 'and the voice: "ECLIPSE… meltdown"');
@@ -39972,10 +39972,9 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
     const g1 = { id: 1 }, g2 = { id: 2 };
     Finish.noteHit(shot(g1), room(enemy, 'weapons')); Finish.noteHit(shot(g2), room(enemy, 'weapons')); Finish.noteHit(shot({ id: 3 }), room(enemy, 'weapons'));
     ok(!Finish.state().used, 'ASHES done without the papyrus: nothing — the recipe needs the record');
-    cap.knowledge = 7;
-    ok(/not enough knowledge \(8 needed, 7 left\)/.test(Finish.refusal(cap, 'meltdown')), 'seven knowledge is not eight');
-    Finish.noteHit(shot(g1), room(enemy, 'reactor')); Finish.noteHit(shot(g2), room(enemy, 'reactor'));
-    ok(!Finish.state().used && enemy.hull > 0 && Commander.knowledge(cap) === 7, 'and the recipe does nothing, for nothing');
+    cap.knowledge = 0;
+    ok(Finish.refusal(cap, 'meltdown') === null && Finish.recordCost(Chips.RECORDS.meltdown) === 0, 'update254: a papyrus (FATALITY) needs no knowledge — none in hand, still ready');
+    ok(Finish.recordCost(Object.values(Chips.RECORDS).find(d => d.kind === 'mercy')) === Chips.RECORD_COST, '…a seal (MERCY) still costs its knowledge');
     cap.knowledge = 30; cap.karma = 90;
     ok(/dark/.test(Finish.refusal(cap, 'meltdown')), 'a dark papyrus (a saint\'s wall) does not fire');
     cap.karma = 50;
@@ -40014,22 +40013,25 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
     T.playerShip = player; T.enemyShip = enemy; T.STATE = 'combat';
     CombatManager.scrapReward = 33;
     toFinish(enemy);
+    const kM = Commander.knowledge(cap);
     quietly(() => Finish.noteHit(shot({ id: 1 }), room(enemy, 'piloting')));
     ok(Finish.peekPending()?.kind === 'mercy', 'test setup: a seal fired');
+    ok(Commander.knowledge(cap) === kM - Chips.RECORD_COST, `a seal costs its knowledge (${kM} → ${Commander.knowledge(cap)})`);
     quietly(() => T._updateCombat(0.5));
     ok(T.STATE === 'combat' && Finish.peekPending(), 'a beat first: the banner is seen before they strike');
     for (let i = 0; i < Math.ceil(FINISH.SCENE_MERCY / 0.5) + 2 && T.STATE === 'combat'; i++) quietly(() => T._updateCombat(0.5));
     ok(T.STATE === 'event' && /^QUARTER — OPEN HAND$/.test(T.event?.title ?? ''), `then their surrender, once its scene is played: ${T.event?.title}`);
     const res = T.event.choices[0].result;
     ok(res.scrap === 33 && res.acceptSurrender && !res.karma, 'the fight\'s CC, the surrender door — and no second karma (the seal paid it)');
-    ok(res.crew === 1, 'and one of their hands signs on');
-    ok(!enemy.weapons.length || res.weaponReward === enemy.weapons[0].defKey, 'and their gun, if they had one');
+    const extra = ['fuel', 'air', 'he3', 'weaponReward', 'crew'].filter(k => res[k]);
+    ok(extra.length === 1, `update254: and ONE thing more, varied — a hand, their gun, He2, air or He-3 (${extra})`);
+    ok(!res.weaponReward || res.weaponReward === enemy.weapons[0].defKey, 'their gun, when it is the gun');
     ok(!Finish.peekPending(), 'settled once');
-    const crew0 = player.crew.length, cc0 = Save.getRun().scrap;
+    const cc0 = Save.getRun().scrap;
     quietly(() => T._resolveEvent(0));
-    ok(T.event?.pickOne && T.event.choices.some(c => c.result.scrap === 33) && T.event.choices.some(c => c.result.crew === 1), 'the CC or the hand (or the gun): one of them, picked (update242)');
-    quietly(() => T._resolveEvent(T.event.choices.findIndex(c => c.result.crew === 1)));
-    ok(Save.getRun().scrap === cc0 && player.crew.length === crew0 + 1, 'taken: the new hand — and not the CC');
+    ok(T.event?.pickOne && T.event.choices.length === 2 && T.event.choices.some(c => c.result.scrap === 33) && T.event.choices.some(c => c.result[extra[0]]), 'the CC or the other thing: one of them, picked (update242)');
+    quietly(() => T._resolveEvent(T.event.choices.findIndex(c => c.result[extra[0]])));
+    ok(Save.getRun().scrap === cc0, 'taken: the other thing — and not the CC');
     ok(T.STATE !== 'event' && T.enemyShip === null, 'and the fight ends in peace');
     {
       // the hull roll at 30% never opens the old surrender over a seal (it once did, at random)
@@ -40250,7 +40252,7 @@ section('370. FINISH HER!, the scenes: a FATALITY is played before the hull goes
     ok(T.STATE === 'event' && /^QUARTER/.test(T.event?.title ?? ''), 'then their surrender');
     const res = T.event.choices[0].result;
     const hands = enemy.crew.filter(c => c.alive && !c.isPet).length;
-    ok(res.crew === 1 && res.mercyPrisoners === Math.min(2, hands - 1), `one signs on, the rest to the cells (${res.mercyPrisoners} of ${hands - 1}, 2 free)`);
+    ok(res.mercyPrisoners === Math.min(2, hands - (res.crew ? 1 : 0)), `one signs on (sometimes, update254), the rest to the cells (${res.mercyPrisoners}, 2 free)`);
     ok(/go to your cells/.test(T.event.text), 'and the window says so');
     const before = player.prisoners.length;
     quietly(() => T._resolveEvent(0));
@@ -44645,14 +44647,15 @@ section('417. The Lunar Patrol (231, jj 12.11: „spotykamy patrol, jest dialog 
     // ── where she turns up ──
     {
       const cols = SectorMap.GRID.cols, run = { sector: 2 };
-      const at = (col, type = 'combat', extra = {}) => ({ col, type, ...extra });
-      ok(Patrol.rollAt(at(cols - 2), { run, cols, rnd: 0.29 }) && Patrol.rollAt(at(cols - 3), { run, cols, rnd: 0.29 }), 'the last two columns before the exit: a 0.29 roll meets her');
-      ok(!Patrol.rollAt(at(cols - 2), { run, cols, rnd: 0.31 }) && Patrol.rollAt(at(cols - 2), { run, cols, rnd: 0.45, hot: true }), `odds ${PATROL.ODDS}, ${PATROL.ODDS_HOT} with contraband aboard`);
+      const at = (col, type = 'event', extra = {}) => ({ col, type, ...extra });   // update254: an EVENT node is hers
+      ok(Patrol.rollAt(at(cols - 2), { run, cols, rnd: 0.49 }) && Patrol.rollAt(at(cols - 3), { run, cols, rnd: 0.49 }), 'the last two columns before the exit: a 0.49 roll meets her (50/50, update254)');
+      ok(!Patrol.rollAt(at(cols - 2), { run, cols, rnd: 0.51 }) && Patrol.rollAt(at(cols - 2), { run, cols, rnd: 0.65, hot: true }), `odds ${PATROL.ODDS}, ${PATROL.ODDS_HOT} with contraband aboard`);
       ok(!Patrol.rollAt(at(cols - 1), { run, cols, rnd: 0 }) && !Patrol.rollAt(at(cols - 4), { run, cols, rnd: 0 }) && !Patrol.rollAt(at(0), { run, cols, rnd: 0 }),
         'never in the exit column, never earlier than two before it');
-      ok(!Patrol.rollAt(at(cols - 2, 'store'), { run, cols, rnd: 0 }) && !Patrol.rollAt(at(cols - 2, 'combat', { wantedId: 'x' }), { run, cols, rnd: 0 })
-        && Patrol.rollAt(at(cols - 2, 'event'), { run, cols, rnd: 0 }) && Patrol.rollAt(at(cols - 2, 'empty'), { run, cols, rnd: 0 }),
-        'not instead of a port or a wanted man; instead of a fight, an event or an empty beacon, yes');
+      ok(!Patrol.rollAt(at(cols - 2, 'store'), { run, cols, rnd: 0 }) && !Patrol.rollAt(at(cols - 2, 'event', { wantedId: 'x' }), { run, cols, rnd: 0 })
+        && !Patrol.rollAt(at(cols - 2, 'combat'), { run, cols, rnd: 0 }) && !Patrol.rollAt(at(cols - 2, 'empty'), { run, cols, rnd: 0 })
+        && Patrol.rollAt(at(cols - 2, 'event'), { run, cols, rnd: 0 }),
+        'update254: only instead of an EVENT ("?") — never a fight marked ENEMY, a port, an empty beacon or a wanted man');
       ok(!Patrol.rollAt(at(cols - 2), { run: { sector: 2, patrolSector: 2 }, cols, rnd: 0 }) && Patrol.rollAt(at(cols - 2), { run: { sector: 3, patrolSector: 2 }, cols, rnd: 0 }),
         'once a sector');
       PATROL.on = false;
@@ -44663,8 +44666,9 @@ section('417. The Lunar Patrol (231, jj 12.11: „spotykamy patrol, jest dialog 
     {
       launch(false, 2);
       const map = T.sectorMap, cols = SectorMap.GRID.cols;
-      const node = map.nodes.find(n => n.col === cols - 2 && PATROL.KINDS.includes(n.type) && !n.wantedId
+      const node = map.nodes.find(n => n.col === cols - 2 && !n.wantedId && n.type !== 'store'
                                     && map.nodes.some(m => m.next.includes(n.id)));
+      node.type = 'event';                                          // update254: hers is an EVENT node (a map may roll none there)
       const from = map.nodes.find(m => m.next.includes(node.id));
       map.currentId = from.id; node.locked = false;                 // standing one jump short of it
       const keepOdds = PATROL.ODDS; PATROL.ODDS = 1;
@@ -46520,21 +46524,27 @@ section('437. jj 21.11 15:17 (251): the wreckage when she goes, boarders or not;
     const ship = new Ship('frigate', true, Ship.PLAYER_STATION.x, Ship.PLAYER_STATION.y); ship._allocateDefaultPower();
     sb.makeStartingCrew().forEach(c => ship.addCrew(c));
     T.playerShip = ship; T.sectorMap = new sb.SectorMap(1, 7, sb.SectorMap.MID_LANE);
-    T.STATE = 'event'; T.event = { title: 'Surrender', text: '.', choices: [{ label: 'Accept', result: { scrap: 30, fuel: 4, air: 50 } }] };
+    T.STATE = 'event'; T.event = { title: 'Surrender', text: '.', choices: [{ label: 'Accept', result: { scrap: 30, fuel: 4 } }] };
     quiet(() => T._resolveEvent(0));
-    ok(T.event?.pickOne && Array.isArray(T.event.pickKeys) && T.event.pickKeys.join() === 'scrap,fuel,air', `two or more rewards: one card each (${T.event?.pickKeys})`);
+    ok(T.event?.pickOne && Array.isArray(T.event.pickKeys) && T.event.pickKeys.join() === 'scrap,fuel', `two or more rewards: one card each (${T.event?.pickKeys})`);
     ok(T.event.choices.every(c => c.result.fromCards), '…each card one reward');
     const offers = T.event.pickKeys.map((k, i) => RewardView.offer(k, T.event.choices[i].result[k]).kind);
-    ok(offers.join() === 'cc,fuel,air', `each with its picture (${offers})`);
+    ok(offers.join() === 'cc,fuel', `each with its picture (${offers})`);
     const realD = sb.RewardView.draw; let cards = 0;
     sb.RewardView.draw = () => { cards++; return 'x'; };
     const ctx = new Proxy({}, { get: (t, k) => k === 'measureText' ? () => ({ width: 10 }) : (k in t ? t[k] : () => ({ addColorStop() {} })), set: (t, k, v) => { t[k] = v; return true; } });
     const realB = Renderer.drawBackground; Renderer.drawBackground = () => {};
     try { sb.Input.mouse.leftPressed = false; T._drawEvent(ctx); } finally { sb.RewardView.draw = realD; Renderer.drawBackground = realB; }
-    ok(cards === 3, `the event screen draws them as cards, side by side (${cards})`);
+    ok(cards === 2, `the event screen draws them as cards, side by side (${cards})`);
     const cc0 = Save.getRun().scrap;
     T.STATE = 'event'; quiet(() => T._resolveEvent(0));
     ok(Save.getRun().scrap === cc0 + 30 && T.eventResult === null && !T.event, 'a card taken: its reward — and no window after it: two windows in all');
+    /* update254: three rewards — two cards, never three; the third is not taken either */
+    T.STATE = 'event'; T.event = { title: 'Surrender', text: '.', choices: [{ label: 'Accept', result: { scrap: 30, fuel: 4, air: 50, karma: 5 } }] };
+    quiet(() => T._resolveEvent(0));
+    ok(T.event?.pickOne && T.event.pickKeys.length === 2 && T.event.choices.length === 2, `three rewards: two cards (${T.event?.pickKeys})`);
+    ok(T.event.choices.every(c => ['scrap', 'fuel', 'air'].filter(k => c.result[k]).length === 1 && c.result.karma === 5), '…each card one reward; what is not a reward (karma) rides with every card');
+    T.STATE = 'event'; T.event = null;
     T.STATE = 'event'; T.event = { title: 'Gift', text: '.', choices: [{ label: 'Take', result: { scrap: 12 } }] };
     quiet(() => T._resolveEvent(0));
     ok(T.eventResult && T.eventResult.pic.kind === 'cc', 'one reward: no cards, the outcome window as before');
@@ -46964,7 +46974,7 @@ section('439. jj 22.11 22:27 (253): the main menu from the base, the helmet in t
        `promoted with a knife in his belt, the knife goes back on the shelf (${armed}, ${before}→${after}, ${r?.message})`);
     void r0;
   }
-  ok(/'◆ KIT', \{ act: 'cpu', arg: cap\.id/.test(BS) && /'◆ KIT & SKILLS'/.test(BS),
+  ok(/_kitBadge\(ctx, C\.x \+ C\.w - 30, C\.y \+ 6, cap\.id\);/.test(BS) && /_zones\.push\(\{ x, y, w: s, h: s, act: 'cpu', arg: id \}\)/.test(BS) && /'◆ KIT & SKILLS'/.test(BS),
      'the loadout\'s commander has a KIT button to his tablets and skills; the mess says KIT & SKILLS, not TABLETS');
   ok(Base.unitPrice('air') === 10 && Base.SHOP_UNIT.air === 50, `50 L of air at the base: ${Base.unitPrice('air')} CC`);
   {
@@ -47015,6 +47025,49 @@ section('439. jj 22.11 22:27 (253): the main menu from the base, the helmet in t
     ok(RunTally.score({ sector: 1 }).grade === 'D', 'a thin one is a D');
     ok(/const S = T\.score \?\?/.test(read('js/renderer.js')) && /_last\.score = score\(_last\);/.test(read('js/crewtalk.js')),
        'the summary shows it under the four cards');
+  }
+})();
+
+// ============================================================
+section('440. jj 23.11 (254): a derelict looks wrecked, the patrol on an EVENT 50/50, the build on the title screen, item tips on the loadout and SUPPLY, the KIT badge, two reward cards at most, He-3 and gas in a MERCY, a free FATALITY');
+// ============================================================
+(function testUpdate254() {
+  const quiet = (fn) => { const log = console.log, warn = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = log; console.warn = warn; } };
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const sb = loadEngine();
+  const { Ship, Save, Game, RewardView, LootScreen, BaseScreen } = sb;
+  const T = Game.__test;
+  const G = read('js/game.js');
+
+  // ── a wreck ──
+  {
+    const d = sb.makeDerelict(1);
+    ok(d.isDerelict && d.enginesRunning() === false, 'a derelict\'s drives are cold — no flames');
+    const W = read('js/wreck.js');
+    ok(/if \(s === wreck\) _drawWreckDamage\(ctx, b, _t\);/.test(W) && /function _drawWreckDamage\(ctx, b, t\)/.test(W) && /if \(s === wreck\) ctx\.rotate\(/.test(W),
+       'docking: the derelict lists, is burnt and holed, and sparks — not the fighting ship of the title screen');
+  }
+  // ── the build ──
+  ok(/const GAME_VERSION = '0\.254';/.test(G) && /`MOON WARS v\$\{GAME_VERSION\}`/.test(G), 'the title screen shows the build: v0.254');
+  // ── tips ──
+  ok(typeof LootScreen.drawTip === 'function' && typeof BaseScreen.drawTips === 'function', 'one tip box, the hold\'s, drawn on the base too');
+  ok(/BaseScreen\.draw\(ctx\); BaseScreen\.drawTips\?\.\(ctx\);/.test(G) && /_tipZones\.push\(\{ x: zx, y: p\.y, w: zw, h, item: it \}\);/.test(read('js/basescreen.js'))
+     && /if \(_screen === 'loadout'\) \{\s*const c = _loCellAt\(mx, my\);/.test(read('js/basescreen.js')),
+     'the loadout\'s grids and the SUPPLY rack show what an item is under the mouse');
+  // ── He-3 and the mercy ──
+  {
+    Save.load(); Save.startRun();
+    const ship = new Ship('frigate', true, 80, 120); ship._allocateDefaultPower(); sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    T.playerShip = ship;
+    const before = ship.cargo.countOf?.('trade') ?? 0;
+    T.STATE = 'event'; T.event = { title: 'x', text: '.', choices: [{ label: 'Take', result: { he3: 3 } }] };
+    quiet(() => T._resolveEvent(0));
+    const he3 = ship.cargo.items.filter(i => i.defKey === 'he3_ore').reduce((a, i) => a + (i.qty ?? 1), 0);
+    ok(he3 === 3, `He-3 ore as a reward goes into the hold (${he3})`); void before;
+    ok(RewardView.offer('he3', 3).kind === 'he3' && RewardView.pick({ he3: 2 }).badge === '+2 He-3', 'with its picture and badge');
+    ok(/const pool = \[\['fuel', 25\], \['air', 25\], \['he3', 20\]\];/.test(G) && /if \(gun\) pool\.push\(\['weaponReward', 18\]\);/.test(G)
+       && /pool\.push\(\['crew', 12\]\);/.test(G), 'a MERCY: the CC and ONE thing more — He2, air, He-3, now and then their gun or a hand');
   }
 })();
 

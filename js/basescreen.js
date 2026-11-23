@@ -938,8 +938,25 @@ const BaseScreen = (() => {
     const B = ROOM_BAR.brief;
     return { x: B.x + 4, y: B.y + B.h - 46, w: B.w - 8, h: 42 };
   }
+  /* WHAT IT IS, UNDER THE MOUSE (update254, jj 23.11: „wszędzie info itemów — loadout i supply też na hover"):
+     the goods drawn on SUPPLY leave their rectangles here; the loadout reads its own grids. Drawn last (game.js). */
+  let _tipZones = [];
+  function drawTips(ctx) {
+    if (typeof LootScreen === 'undefined' || !LootScreen.drawTip || _hand || _departing) return;
+    const mx = Input.mouse.x, my = Input.mouse.y;
+    let it = null;
+    if (_screen === 'loadout') {
+      const c = _loCellAt(mx, my);
+      it = c ? c.grid.at?.(c.cx, c.cy) ?? null : null;
+    } else if (!_screen && !_town) {
+      it = _tipZones.find(z => Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h))?.item ?? null;
+    }
+    if (it) LootScreen.drawTip(ctx, it, mx, my);
+  }
+
   function draw(ctx) {
     _zones = [];
+    _tipZones = [];
     _roomBarShown = false;
     const W = Renderer.getWidth(), H = Renderer.getHeight();
     const b = Base.get();
@@ -2845,6 +2862,7 @@ const BaseScreen = (() => {
       LootScreen.drawCargoItem(ctx, it, p.x, p.y, 1, false, _placeOf(it) === _shelfSel);
       ctx.restore();
       const zx = Math.max(p.x, K.x), zw = Math.min(p.x + w, K.x + K.w) - zx;
+      _tipZones.push({ x: zx, y: p.y, w: zw, h, item: it });
       _zones.push({ x: zx, y: p.y, w: zw, h, act: 'shelfPick', arg: _placeOf(it) });
     });
     if (K.cols > K.vis) {
@@ -3034,6 +3052,7 @@ const BaseScreen = (() => {
       const px = K.x + it.x * P, py = K.y + it.y * P;
       const w = (it.mask?.[0]?.length ?? it.w) * P - SHELF_GAP, h = (it.mask?.length ?? it.h) * P - SHELF_GAP;
       LootScreen.drawCargoItem(ctx, it, px, py, 1, false, 'h:' + _placeOf(it) === _shelfSel);
+      _tipZones.push({ x: px, y: py, w: (it.mask?.[0]?.length ?? it.w) * P - SHELF_GAP, h: (it.mask?.length ?? it.h) * P - SHELF_GAP, item: it });
       _zones.push({ x: px, y: py, w, h, act: 'holdPick', arg: _placeOf(it) });
     });
     const p = _holdSummary(), y0 = R.pack.y + R.pack.h + 22;
@@ -4898,10 +4917,10 @@ const BaseScreen = (() => {
     const cap = _commanderId ? Base.commanderById?.(_commanderId) : null;
     const C = R.cmdSlot;
     if (cap) {
-      Renderer.drawCrewCard(ctx, cap, C.x, C.y, 'M', { w: C.w - 78, h: C.h, commander: true, hint: 'click: back to the mess', skillStrip: true });
+      Renderer.drawCrewCard(ctx, cap, C.x, C.y, 'M', { w: C.w, h: C.h, commander: true, hint: 'click: back to the mess', skillStrip: true });
       /* HIS KIT AND SKILLS, FROM HERE (update253, jj 22.11: „w loadout, jak mamy kapitana, powinien mieć gdzieś ikonkę
          prowadzącą do jego info i aby móc dodać tablety"): the tablet board, which shows him too. */
-      _btn(ctx, C.x + C.w - 74, C.y, 74, C.h, '◆ KIT', { act: 'cpu', arg: cap.id, col: '#ffd060', font: '12px Orbitron, monospace', sub: 'tablets · skills' });
+      _kitBadge(ctx, C.x + C.w - 30, C.y + 6, cap.id);       // update254: small, on his card (jj: „ładniejszy, razem z kapitanem")
     } else {
       ctx.save();
       ctx.fillStyle = 'rgba(40,32,10,0.35)'; ctx.beginPath(); ctx.roundRect(C.x, C.y, C.w, C.h, 5); ctx.fill();
@@ -4976,6 +4995,30 @@ const BaseScreen = (() => {
     _btn(ctx, R.start.x, R.start.y, R.start.w, R.start.h, 'START CONTRACT  ▶',
          { act: ready ? 'toDest' : null, enabled: ready, col: worst ? '#ffb020' : '#1aff8c',
            font: '16px Orbitron, monospace', sub: 'choose a moon and a contract  [ENTER]' });
+  }
+
+  /** HIS KIT (update254): a small gold tablet on the commander's card — his tablets and his skills. */
+  function _kitBadge(ctx, x, y, id) {
+    const s = 24, hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, x, y, s, s);
+    ctx.save();
+    ctx.fillStyle = hot ? 'rgba(90,70,20,0.95)' : 'rgba(40,32,10,0.92)';
+    ctx.beginPath(); ctx.roundRect(x, y, s, s, 5); ctx.fill();
+    ctx.strokeStyle = hot ? '#ffe9a0' : '#ffd060'; ctx.lineWidth = hot ? 1.5 : 1;
+    ctx.beginPath(); ctx.roundRect(x + 0.5, y + 0.5, s - 1, s - 1, 5); ctx.stroke();
+    /* the tablet: a little slab with a lit screen and two lines on it */
+    ctx.fillStyle = '#c9a45a'; ctx.beginPath(); ctx.roundRect(x + 6, y + 4, 12, 16, 2); ctx.fill();
+    ctx.fillStyle = hot ? '#bff6ff' : '#7fd8ff'; ctx.fillRect(x + 8, y + 6, 8, 10);
+    ctx.fillStyle = 'rgba(10,30,50,0.8)'; ctx.fillRect(x + 9, y + 8, 6, 1); ctx.fillRect(x + 9, y + 11, 4, 1);
+    ctx.fillStyle = '#5a4a28'; ctx.fillRect(x + 11, y + 17, 2, 1.5);
+    ctx.restore();
+    if (hot) {
+      ctx.save(); ctx.font = '10px Share Tech Mono, monospace'; ctx.textAlign = 'right';
+      const t = 'KIT — tablets & skills', w = ctx.measureText(t).width + 12;
+      ctx.fillStyle = 'rgba(8,12,22,0.95)'; ctx.fillRect(x + s - w, y - 20, w, 16);
+      ctx.fillStyle = '#ffd060'; ctx.fillText(t, x + s - 6, y - 8); ctx.restore();
+      Audio.hoverCue?.(`kit:${id}`);
+    }
+    _zones.push({ x, y, w: s, h: s, act: 'cpu', arg: id });
   }
 
   /** What the cursor carries, drawn last, over everything. */
@@ -5678,7 +5721,7 @@ const BaseScreen = (() => {
   }
 
   return {
-    open, update, draw, consumeLaunch, DEPART, HELM_GATE, HANGAR_EXTRAS, keeperLine: (kp) => _keeperLine(kp, Base.get()), helmRefusal: () => _helmRefusal(), departing: () => _departing, consumeCpu, consumeLevelUp, packGrids, commitPack,
+    open, update, draw, drawTips, consumeLaunch, DEPART, HELM_GATE, HANGAR_EXTRAS, keeperLine: (kp) => _keeperLine(kp, Base.get()), helmRefusal: () => _helmRefusal(), departing: () => _departing, consumeCpu, consumeLevelUp, packGrids, commitPack,
     liveShelf,
     // exposed for tests
     _levels: _entryLevels,

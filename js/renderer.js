@@ -1327,7 +1327,8 @@ const Renderer = (() => {
         ctx.fillText(_clipTo(ctx, `${K.label} · ${K.word} · karma ${rec.kind === 'fatality' ? '−' : '+'}${Chips.RECORD_KARMA}`, r.w - 44), r.x + 34, r.y + 27);
         ctx.fillStyle = '#c8d8f0';
         ctx.font = '9px Share Tech Mono, monospace';
-        ctx.fillText(rec.on ? `AT FINISH   ${Chips.RECORD_COST} KN` : 'DARK', r.x + 8, r.y + 44);
+        { const kn = (typeof Finish !== 'undefined' && Finish.recordCost) ? Finish.recordCost(rec.def) : Chips.RECORD_COST;   // a fatality is free (update254)
+          ctx.fillText(rec.on ? `AT FINISH   ${kn ? `${kn} KN` : 'FREE'}` : 'DARK', r.x + 8, r.y + 44); }
         ctx.fillStyle = '#7a90a8';
         ctx.font = '8px Share Tech Mono, monospace';
         _wrap(ctx, rec.on ? rec.def.recipe : rec.why, r.w - 16).slice(0, 3)

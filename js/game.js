@@ -31,6 +31,9 @@ const Game = (() => {
    the barracks is short a crew until it comes home. Two doors, and the
    base is the room they both open into. */
 const MENU_ITEMS = ['ENTER BASE','OPTIONS','NEW GAME'];
+/* THE BUILD ON THE TITLE SCREEN (update254, jj 23.11): 0.<update> until the release (then 1.0.0). Raised with
+   every package. */
+const GAME_VERSION = '0.254';
 /* THE TITLE SCREEN (update123, jj: "co do menu zrób to, co napisałeś"):
    your own hull drifting past the Moon with its roof on, a line under
    ENTER BASE saying what is waiting in there, and NEW GAME — behind a
@@ -406,7 +409,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
     if (STATE === 'menu')    _drawMenu(ctx);
     if (STATE === 'options') _drawOptions(ctx);
-    if (STATE === 'base')    BaseScreen.draw(ctx);
+    if (STATE === 'base')    { BaseScreen.draw(ctx); BaseScreen.drawTips?.(ctx); }
     if (STATE === 'map')     { _drawMap(ctx); if (_dossier && _commander) Renderer.drawCommanderDossier(ctx, _commander); }
     if (STATE === 'combat')  _drawCombat(ctx);
     if (STATE === 'event')   _drawEvent(ctx);
@@ -863,7 +866,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     ctx.fillStyle = '#1a2a3a';
     ctx.font = '11px Share Tech Mono, monospace';
     ctx.textAlign = 'right';
-    ctx.fillText('MOON WARS v0.1', W-10, H-10);
+    ctx.fillText(`MOON WARS v${GAME_VERSION}`, W-10, H-10);   // the build (update254)
 
     if (_menuConfirm) _drawMenuConfirm(ctx);
   }
@@ -5309,8 +5312,21 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const scrap = CombatManager.scrapReward || Utils.randInt(20, 35 + (run?.sector ?? 1) * 5);
     const gun = _enemyShip?.weapons?.find(w => w) ?? null;
     const result = { scrap, acceptSurrender: true, mercy: fin.key };
-    if (gun) result.weaponReward = gun.defKey;
-    if (_playerShip && _playerShip.crew.length < 8) result.crew = 1;
+    /* ONE THING MORE, AND NOT ALWAYS THE SAME (update254, jj 23.11: „teraz za łatwo jest zdobywać załoganta lub broń —
+       za każdy open hand jest; nagrody są różne, nieraz O2 i H2 lub He3"): their gun or a hand only sometimes; else
+       He2, air or He-3 ore. */
+    {
+      const pool = [['fuel', 25], ['air', 25], ['he3', 20]];
+      if (gun) pool.push(['weaponReward', 18]);
+      if (_playerShip && _playerShip.crew.length < 8) pool.push(['crew', 12]);
+      let roll = Math.random() * pool.reduce((a, [, w]) => a + w, 0), pick = pool[0][0];
+      for (const [k, w] of pool) { if ((roll -= w) < 0) { pick = k; break; } }
+      if (pick === 'weaponReward') result.weaponReward = gun.defKey;
+      else if (pick === 'crew') result.crew = 1;
+      else if (pick === 'fuel') result.fuel = Utils.randInt(2, 4);
+      else if (pick === 'air') result.air = 10 * Utils.randInt(8, 15);
+      else result.he3 = Utils.randInt(2, 4);
+    }
     /* THE REST GO TO THE CELLS (update183, the proposal: "załoga idzie do
        niewoli albo jeden się zaciąga") — as many as our carbonite bay has
        free slabs; one who signs on is one fewer in irons. */
@@ -5318,8 +5334,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const cells = _playerShip?.freeCells?.() ?? 0;
     const taken = Math.max(0, Math.min(hands, cells));
     if (taken > 0) result.mercyPrisoners = taken;
-    const bits = [`${scrap} CC`, gun ? `their ${gun.label}` : null,
+    const bits = [`${scrap} CC`, result.weaponReward ? `their ${gun.label}` : null,
                   result.crew ? 'one of their hands asks to sign on with you' : null,
+                  result.fuel ? `${_he2L(result.fuel)} L of He2` : null, result.air ? `${result.air} L of air` : null,
+                  result.he3 ? `${result.he3} He-3 ore` : null,
                   taken > 0 ? `${taken} go to your cells (${MERCY_PRISONER_BOUNTY(run?.sector)} CC each at the yard)`
                             : (hands > 0 ? 'the rest you let go — no free cell' : null)].filter(Boolean);
     _event = {
@@ -6223,7 +6241,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
      trzeba wybrać jedną z nich — np. jest załogant i kasa, wybieramy jedną; tak jest ze wszystkim"): a choice that
      would hand over two or more rewards opens a second dialog — one button per reward; the rest of the choice (its
      karma, the surrender it accepts…) goes with whichever is picked. Costs (a negative amount) are not rewards. */
-  const EVENT_REWARDS = ['scrap', 'missiles', 'fuel', 'air', 'tankFuel', 'tankAir', 'weaponReward', 'system_upgrade', 'crew', 'pet'];
+  const EVENT_REWARDS = ['scrap', 'missiles', 'fuel', 'air', 'he3', 'tankFuel', 'tankAir', 'weaponReward', 'system_upgrade', 'crew', 'pet'];
+  /* TWO CARDS AT MOST (update254, jj 23.11: „z tym wyborem nagród jest różnie, ale max 2 do wyboru, nigdy 3") */
+  const PICK_MAX = 2;
   function _eventRewards(result) {
     if (!result || result.oneOf) return [];
     const plus = v => Array.isArray(v) ? (v[0] >= 0 && v[1] > 0) : typeof v === 'number' ? v > 0 : !!v;
@@ -6243,13 +6263,19 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       case 'weaponReward': return `Take their ${(typeof WEAPON_DEFS !== 'undefined' && WEAPON_DEFS[v]?.label) || 'gun'}`;
       case 'system_upgrade': return `Take the ${String(v).toUpperCase()} upgrade`;
       case 'crew': return 'Take the defector — a new crew member';
+      case 'he3': return `Take ${n} He-3 ore`;
       case 'pet': return 'Take the cat';
       default: return `Take the ${k}`;
     }
   }
   function _pickOneEvent(ev, choice, keys) {
+    if (keys.length > PICK_MAX) {                       // two of them, which two varies (update254)
+      keys = keys.slice();
+      for (let i = keys.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [keys[i], keys[j]] = [keys[j], keys[i]]; }
+      keys = keys.slice(0, PICK_MAX);
+    }
     const base = { ...choice.result };
-    keys.forEach(k => delete base[k]);
+    _eventRewards(choice.result).forEach(k => delete base[k]);   // every reward off the base, also those not on a card (update254)
     /* THE MAN ON OFFER, MET BEFORE HE IS TAKEN (update253, jj 22.11: „jak wybieramy CC lub załoganta, to powinniśmy
        widzieć, jaki to załogant i jego info"): rolled now, shown on his card, and the one who comes aboard. */
     const man = keys.includes('crew') && typeof CrewMember !== 'undefined' ? new CrewMember({}) : null;
@@ -6439,6 +6465,13 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       const amt = Array.isArray(result.air) ? Utils.randIn(result.air[0], result.air[1]) : result.air;
       const r = _addAir(amt);
       UI.notify(`+${r.loaded} L of air in bottles — they go into the tank at a port` + (r.spilled ? ` (${r.spilled} L would not fit)` : ''), r.spilled ? 'warn' : 'good');
+    }
+    /* HE-3 ORE INTO THE HOLD (update254): what a beaten crew sometimes hands over */
+    if (result.he3 && _playerShip?.cargo) {
+      const n = Array.isArray(result.he3) ? Utils.randIn(result.he3[0], result.he3[1]) : result.he3;
+      const left = _playerShip.cargo.addStack('he3_ore', n);
+      const got = n - left;
+      UI.notify(got > 0 ? `+${got} He-3 ore into the hold` + (left ? ` — ${left} would not fit` : '') : 'No room in the hold for the He-3.', left ? 'warn' : 'good');
     }
     if (result.missiles) {
       const amt = Array.isArray(result.missiles) ? Utils.randIn(result.missiles[0], result.missiles[1]) : result.missiles;
