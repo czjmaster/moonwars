@@ -954,7 +954,7 @@ const PortView = (() => {
     if (room.type === 'reactor') return { l: _ship.reactor.level, m: _ship.reactor.maxLevel };
     const sys = room.system;
     if (!sys) return null;
-    if (room.type === 'shields') return { l: Math.floor(sys.level / 2), m: Math.floor((sys.def?.maxLevel ?? 6) / 2) };
+    if (room.type === 'shields' || room.type === 'hangar') return { l: Math.floor(sys.level / 2), m: Math.floor((sys.def?.maxLevel ?? 6) / 2) };
     return { l: sys.level, m: sys.def?.maxLevel ?? 8 };
   }
 
@@ -966,6 +966,8 @@ const PortView = (() => {
     const pct = (v) => `+${Math.round(v * 100)}%`;
     switch (room.type) {
       case 'reactor':  return [{ k: 'POWER', now: `${L.l}`, next: nx(`${L.l + 1}`) }];
+      case 'hangar':   return [{ k: 'TIER (best Mk)', now: `${L.l}`, next: nx(`${L.l + 1}`) },
+                               { k: 'POWER BARS', now: `${L.l * 2}`, next: nx(`${L.l * 2 + 2}`) }];
       case 'shields':  return [{ k: 'LAYERS', now: `${L.l}`, next: nx(`${L.l + 1}`) },
                                { k: 'POWER BARS', now: `${L.l * 2}`, next: nx(`${L.l * 2 + 2}`) }];
       case 'engines':  return [{ k: 'POWER BARS', now: `${L.l}`, next: nx(`${L.l + 1}`) },
@@ -990,6 +992,20 @@ const PortView = (() => {
     const cost = s.systemUpgradeCost(room.system);
     const block = shut || (L.l >= L.m ? 'MAX LEVEL' : cc < cost ? `NEED ${cost - cc} MORE CC` : null);
     return { op: 'upgrade', cost, block, top: L.l >= L.m };
+  }
+
+  /** The fighter of a hangar at the yard (update256): buy one for an empty bay, or the next Mk. */
+  function planFighter(room) {
+    const s = _st, sh = _ship, sys = room?.system;
+    if (!s || !sh || !sys || typeof Fighters === 'undefined' || !s.fighterCost) return null;
+    const cc = _purse(), shut = s.refusal?.() || null, mk = Fighters.markOf(sys), tier = Math.floor(sys.level / 2);
+    if (Fighters.isLost(sys)) {
+      const cost = s.fighterCost(sys);
+      return { op: 'fighterBuy', cost, label: 'BUY A FIGHTER', sub: `Mk 1 — the bay is empty`, block: shut || (cc < cost ? `NEED ${cost - cc} MORE CC` : null) };
+    }
+    const cost = s.fighterUpgradeCost(sys);
+    const block = shut || (mk >= 3 ? 'FIGHTER Mk 3 — TOP' : mk + 1 > tier ? `Mk ${mk + 1}: BAY TIER ${mk + 1} FIRST` : cc < cost ? `NEED ${cost - cc} MORE CC` : null);
+    return { op: 'fighterUp', cost, label: `FIGHTER Mk ${mk + 1}`, sub: `now Mk ${mk} · bay tier ${tier}`, block };
   }
 
   /** Where the hull sits on the stage, and how big: one source for the picture and the clicks. */
@@ -1208,11 +1224,22 @@ const PortView = (() => {
       wrap(desc, C.x + 18, y, 56, '#7a90a8', 10, 2);
       const up = planUpgrade(selRoom);
       const can = up && !up.block;
-      const uh = can && hot(PLAN_UP);
-      box(PLAN_UP, uh ? 'rgba(255,215,0,0.24)' : can ? 'rgba(255,215,0,0.14)' : 'rgba(10,10,16,0.8)', can ? '#ffd700' : '#3a3a4a');
-      _text(ctx, up?.top ? 'MAX LEVEL' : can ? `UPGRADE  ▶  ${up.cost} CC` : up?.block ?? '—', PLAN_UP.x + PLAN_UP.w / 2, PLAN_UP.y + 23, can ? '#ffd700' : '#6a6a7a', 16, 'center', 'bold');
-      _text(ctx, up?.top ? 'nothing more a yard can do' : can ? `${cc} CC → ${cc - up.cost} CC after` : `${up?.cost ?? 0} CC`, PLAN_UP.x + PLAN_UP.w / 2, PLAN_UP.y + 41, '#9a8a50', 10, 'center');
-      if (can) _zones.push({ act: 'plUp', arg: { op: up.op }, ...PLAN_UP });
+      /* THE HANGAR: the bay's tier on the left, its FIGHTER on the right (update256) */
+      const hangar = selRoom.type === 'hangar' && typeof Fighters !== 'undefined';
+      const UPB = hangar ? { ...PLAN_UP, w: PLAN_UP.w / 2 - 4 } : PLAN_UP;
+      const uh = can && hot(UPB);
+      box(UPB, uh ? 'rgba(255,215,0,0.24)' : can ? 'rgba(255,215,0,0.14)' : 'rgba(10,10,16,0.8)', can ? '#ffd700' : '#3a3a4a');
+      _text(ctx, up?.top ? 'MAX LEVEL' : can ? `${hangar ? 'BAY' : 'UPGRADE'}  ▶  ${up.cost} CC` : up?.block ?? '—', UPB.x + UPB.w / 2, UPB.y + 23, can ? '#ffd700' : '#6a6a7a', hangar ? 13 : 16, 'center', 'bold');
+      _text(ctx, up?.top ? 'nothing more a yard can do' : can ? `${cc} CC → ${cc - up.cost} CC after` : `${up?.cost ?? 0} CC`, UPB.x + UPB.w / 2, UPB.y + 41, '#9a8a50', 10, 'center');
+      if (can) _zones.push({ act: 'plUp', arg: { op: up.op }, ...UPB });
+      if (hangar) {
+        const F = { ...PLAN_UP, x: PLAN_UP.x + PLAN_UP.w / 2 + 4, w: PLAN_UP.w / 2 - 4 }, fp = planFighter(selRoom);
+        const fc = fp && !fp.block, fh = fc && hot(F);
+        box(F, fh ? 'rgba(159,184,255,0.24)' : fc ? 'rgba(159,184,255,0.14)' : 'rgba(10,10,16,0.8)', fc ? '#9fb8ff' : '#3a3a4a');
+        _text(ctx, fp ? (fc ? `${fp.label}  ${fp.cost} CC` : fp.block) : '—', F.x + F.w / 2, F.y + 23, fc ? '#cfe0ff' : '#6a6a7a', 12, 'center', 'bold');
+        _text(ctx, fp?.sub ?? '', F.x + F.w / 2, F.y + 41, '#7a8ab0', 10, 'center');
+        if (fc) _zones.push({ act: 'plUp', arg: { op: fp.op }, ...F });
+      }
     } else {
       box(C, 'rgba(8,12,22,0.92)', '#4db8ff44');
       _text(ctx, selRoom ? 'EMPTY BAY' : 'PICK A MODULE', C.x + 18, C.y + 32, '#7a90a8', 18, 'left', 'bold');

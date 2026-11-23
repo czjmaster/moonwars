@@ -11669,7 +11669,7 @@ const BREAKS = [
   {
     name: "#151 the UPGRADE button cannot be pressed",
     file: F("portview.js"),
-    from: "      if (can) _zones.push({ act: 'plUp', arg: { op: up.op }, ...PLAN_UP });\n",
+    from: "      if (can) _zones.push({ act: 'plUp', arg: { op: up.op }, ...UPB });\n",
     to:   "",
   },
   {
@@ -18500,7 +18500,7 @@ const BREAKS = [
   {
     name: "#252 her level is not her hangar's",
     file: F('fighters.js'),
-    from: "  function levelOf(sys) { return Math.max(1, Math.min(FIGHTER.HULL.length, sys?.level ?? 1)); }",
+    from: "  function levelOf(sys) { return Math.max(1, Math.min(markOf(sys), tierOf(sys))); }",
     to:   "  function levelOf(sys) { return 1; }",
   },
   {
@@ -18913,6 +18913,96 @@ const BREAKS = [
     file: F('ship.js'),
     from: "    rings: [[356, 418, 16]],",
     to:   "    rings: [],",
+  },
+  {
+    name: "#256 the console man climbs in by himself again",
+    file: F('fighters.js'),
+    from: "        if (!f.pilot && f.lift <= 0) boardWaiting(ship, sys, f);",
+    to:   "        if (!f.pilot && f.lift <= 0) { const k = consoleMan(ship, sys); if (k) board(ship, f, k); }",
+  },
+  {
+    name: "#256 one bar lights the bay",
+    file: F('fighters.js'),
+    from: "    if (poweredTier(sys) < 1) return 'no power';                    // two bars at least, like a shield layer (update256)",
+    to:   "",
+  },
+  {
+    name: "#256 the lift opens with nobody at the console",
+    file: F('fighters.js'),
+    from: "    if (!consoleMan(ship, sys)) return 'nobody at the launch console';\n    return null;\n  }\n  /** Her own ship",
+    to:   "    return null;\n  }\n  /** Her own ship",
+  },
+  {
+    name: "#256 she comes home on her own when hurt",
+    file: F('fighters.js'),
+    from: "        if (f.order === 'recall' || !pilotOk(f.pilot)) {",
+    to:   "        if (f.order === 'recall' || !pilotOk(f.pilot) || f.hp < hullMax(f) * FIGHTER.HOME_AT) {",
+  },
+  {
+    name: "#256 home by magic after a fight",
+    file: F('fighters.js'),
+    from: "        if (['out', 'returning'].includes(f.state)) { f.state = 'outside';",
+    to:   "        if (['out', 'returning'].includes(f.state)) { f.state = 'docked'; f.lift = 0;",
+  },
+  {
+    name: "#256 ours rebuilt by the bay",
+    file: F('fighters.js'),
+    from: "    if (ours(ship)) f.noRebuild = true;                              // ours: a yard sells a new one (update256)",
+    to:   "",
+  },
+  {
+    name: "#256 left behind, nothing lost",
+    file: F('fighters.js'),
+    from: "      if (c) { c._inFighter = false; c.dead = true; c.hp = 0; c.state = 'dead'; lost.push(c); }",
+    to:   "      if (c) { c._inFighter = false; }",
+  },
+  {
+    name: "#256 her shots not hers in the Book",
+    file: F('fighters.js'),
+    from: "      p.gun = `fighter:${sys.roomId}`;\n",
+    to:   "",
+  },
+  {
+    name: "#256 she shoots a wreck",
+    file: F('fighters.js'),
+    from: "    if (!foe || foe.isDerelict || foe._hullDown) return loiter(dt, f, ship, G);     // never a wreck (jj 22.11)\n",
+    to:   "    if (!foe) return;\n",
+  },
+  {
+    name: "#256 a jump never asks about her",
+    file: F('game.js'),
+    from: "    return _fighterJumpOk();\n  }",
+    to:   "    return true;\n  }",
+  },
+  {
+    name: "#256 the bay one pip a level",
+    file: F('systems.js'),
+    from: "    maxLevel: 6, powerPerLayer: 2, startLevel: 2,\n    description: 'The fighter",
+    to:   "    maxLevel: 3,\n    description: 'The fighter",
+  },
+  {
+    name: "#256 a Mk past the bay's tier",
+    file: F('station.js'),
+    from: "    if (mk + 1 > Math.floor(sys.level / 2)) return { ok: false, message: `Mk ${mk + 1} needs a tier ${mk + 1} hangar \u2014 upgrade the bay first.` };\n",
+    to:   "",
+  },
+  {
+    name: "#256 the yard sells no fighter",
+    file: F('station.js'),
+    from: "    Fighters.restore(sys);\n",
+    to:   "",
+  },
+  {
+    name: "#256 the old save's hangar not doubled",
+    file: F('ship.js'),
+    from: "        if (!sd.pips2) { sys.level = Math.min(6, Math.max(2, sys.level * 2));",
+    to:   "        if (!sd.pips2) { sys.level = sys.level;",
+  },
+  {
+    name: "#256 the lift is never asked who opens it on her way home",
+    file: F('fighters.js'),
+    from: "        if (lw) {                                                    // nobody to open the lift: she waits under the keel",
+    to:   "        if (false) {",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

@@ -126,10 +126,12 @@ const SYSTEM_DEFS = {
   /* THE FIGHTER HANGAR AS A MODULE (update250, jj 21.11: „mechanika hangaru — pamiętaj, że mają być w nim moduły
      i załogant"): a room two modules wide; its powered levels fly its fighter (js/fighters.js) — one to launch, more
      to shoot faster — and a man at its launch console flies her. */
+  /* TWO POWER A LEVEL, LIKE THE SHIELDS (update256, jj 22.11: „do działania hangaru 1 lev trzeba 2 energii, tak jak
+     osłony"): pips in pairs, 3 tiers. A tier is the best fighter the bay can fly (Fighters.levelOf). */
   hangar: {
     label: 'Hangar', icon: 'icon_hangar',
-    maxLevel: 3,
-    description: 'Launches the fighter on her lift and flies her: a man at the launch console and one power to go; each level more, she fires faster. Shot down, the hangar builds another.',
+    maxLevel: 6, powerPerLayer: 2, startLevel: 2,
+    description: 'The fighter\'s bay: 2 power a tier, a man at the launch console to work the lift. LAUNCH and RECALL from the bay; she flies a Mk as high as its tier.',
   },
   artillery: {
     label: 'Artillery', icon: 'icon_artillery',

@@ -1920,7 +1920,7 @@ const SHIP_LAYOUTS = {
       { id:'r_repair',   type:'autorepair', col:2, row:0, adjacent:[] },
     ],
     startSystems: ['engines','weapons','shields','piloting','oxygen','reactor','medbay','autorepair','hangar'],
-    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2, hangar: 1 },
+    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2, hangar: 2 },
     startWeapons: ['laser_basic'],
     reactorLevel: 10,
     reactorMax: 14,
@@ -1948,7 +1948,7 @@ const SHIP_LAYOUTS = {
       { id:'r_hangar2',  type:'hangar', art:'hangar', col:2, row:0, span:2, adjacent:[] },
     ],
     startSystems: ['engines','weapons','shields','piloting','oxygen','reactor','medbay','hangar','hangar'],
-    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2, hangar: 1 },
+    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2, hangar: 2 },
     startWeapons: ['laser_basic'],
     reactorLevel: 11,
     reactorMax: 14,
@@ -1975,7 +1975,7 @@ const SHIP_LAYOUTS = {
       { id:'r_hangar2',  type:'hangar', art:'hangar', col:3, row:0, span:2, adjacent:['r_hangar'] },
     ],
     startSystems: ['engines','weapons','shields','piloting','oxygen','reactor','hangar','hangar'],
-    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2, hangar: 1 },
+    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2, hangar: 2 },
     startWeapons: ['laser_basic'],
     reactorLevel: 11,
     reactorMax: 14,
@@ -9184,6 +9184,7 @@ class Ship {
       // come back permanently switched off after repairs.
       systems: this.systems.map(s => ({
         type: s.type, level: s.level, power: Math.max(s.power, s.desiredPower ?? 0),
+        ...(s.type === 'hangar' ? { pips2: true, fighter: (typeof Fighters !== 'undefined' && Fighters.saveOf) ? Fighters.saveOf(s) : null } : {}),
       })),
       weapons: this.weapons.map(w => w ? { defKey: w.defKey, slot: w.slot, roomId: w.roomId ?? null } : null),
       // `weaponCargo` is NOT written any more (update75) — a boxed gun
@@ -9233,6 +9234,11 @@ class Ship {
          before this comes out of the hangar with the floor applied; its
          power is the player's to give it. */
       if (sys.type === 'oxygen' && sys.level < Ship.O2_MIN_LEVEL) sys.level = Ship.O2_MIN_LEVEL;
+      /* A HANGAR FROM BEFORE update256 was one pip a level: two pips a tier now */
+      if (sys.type === 'hangar') {
+        if (!sd.pips2) { sys.level = Math.min(6, Math.max(2, sys.level * 2)); sys.power = sys.desiredPower = Math.min(sys.level, (sd.power ?? 0) * 2); }
+        if (sd.fighter) sys._fighterSave = sd.fighter;                      // her Mk, and whether she is lost
+      }
     });
     // A hull saved before update90 gives its lifts their spare units back.
     if (data.lifts == null) ship._reserveLiftPower();

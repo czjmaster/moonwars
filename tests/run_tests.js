@@ -38730,7 +38730,7 @@ section('361. A weapon in every hand (174, jj: "wygląda ciekawie go"): laser kn
     ok(b.roomId === 'r_crew1' && b._animState === 'fight', 'without the order (an old route) the fight holds him, as before');
     P.crew.length = 0;
     const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'js/game.js'), 'utf8');
-    ok((src.match(/_disengage = \{ from: m\.roomId \}/g) ?? []).length === 2, 'both our orders — at home and on their hull — break a man out');
+    ok((src.match(/_disengage = \{ from: m\.roomId \}/g) ?? []).length >= 2, 'both our orders — at home and on their hull — break a man out (and the walk to the fighter, update256)');
   }
 
   // ── 6. ACROSS THE DOORS ──   (update235: Horus's helm is on her top deck at the stern now — the man stands there)
@@ -46324,6 +46324,7 @@ section('436. jj 21.11 (250): the fighters — the HANGAR is a module with a man
   const fs = require('fs'), path = require('path');
   const ROOT = path.join(__dirname, '..');
   const sb = loadEngine();
+  sb.Fighters.AUTO.on = true;   // update256: ours fly on orders now; this section tests the automatic bay (theirs)
   const { Ship, SHIP_LAYOUTS, SYSTEM_DEFS, CombatManager, Save, Base, Game, Fighters, FIGHTER } = sb;
   const T = Game.__test;
 
@@ -46350,7 +46351,7 @@ section('436. jj 21.11 (250): the fighters — the HANGAR is a module with a man
     player.assignStations(); enemy.assignStations(); enemy.weapons = []; player.weapons = [];
     T.playerShip = player; T.enemyShip = enemy; T.STATE = 'combat';
     const hs = Fighters.hangars(player)[0], room = player.getRoomById(hs.roomId);
-    if (opts.power !== false) { powerModule(player, 'hangar', 1); }
+    if (opts.power !== false) { powerModule(player, 'hangar', 2); }
     const man = player.crew.find(c => !c.isPet);
     player.crew.forEach(c => { if (c.race === 'terra') c.race = 'aquarius'; });   // no cyborg's +1 in the hangar: the power is the test's
     if (opts.man !== false) { man.homeRoomId = room.id; man.roomId = room.id; [man.x, man.y] = player.stationSlot(room, 0); man._waypoints = []; }
@@ -46413,7 +46414,7 @@ section('436. jj 21.11 (250): the fighters — the HANGAR is a module with a man
   {
     Save.load(); Save.startRun();
     const P = new Ship('enemy_geb', true, 80, 120), E = new Ship('enemy_geb', false, 850, 120);
-    [P, E].forEach(sh => { const hs = Fighters.hangars(sh)[0]; hs.isDisabled = () => false; hs.effectivePower = () => 1; sh.consoleOperator = () => ({ isPlayer: sh.isPlayer }); });
+    [P, E].forEach(sh => { const hs = Fighters.hangars(sh)[0]; hs.isDisabled = () => false; hs.effectivePower = () => 2; sh.consoleOperator = () => ({ isPlayer: sh.isPlayer }); });
     const a = Fighters.of(Fighters.hangars(P)[0]), b = Fighters.of(Fighters.hangars(E)[0]);
     a.state = 'out'; b.state = 'out'; a.x = 500; a.y = 400; b.x = 700; b.y = 400; a.cd = 0; b.cd = 99;
     const realR = sb.Math.random; sb.Math.random = () => 0.01;
@@ -46608,6 +46609,7 @@ section('438. jj 22.11 (252): the fighter of mini modules — ENG · O₂ · WPN
   const ROOT = path.join(__dirname, '..');
   const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
   const sb = loadEngine();
+  sb.Fighters.AUTO.on = true;   // update256: ours fly on orders now; this section tests the automatic bay (theirs)
   const { Ship, CombatManager, Save, Game, Fighters, FIGHTER, Weapon, Projectile } = sb;
   const T = Game.__test;
   const withRandom = (v, fn) => { const r = sb.Math.random; sb.Math.random = typeof v === 'function' ? v : () => v; try { return fn(); } finally { sb.Math.random = r; } };
@@ -46630,7 +46632,7 @@ section('438. jj 22.11 (252): the fighter of mini modules — ENG · O₂ · WPN
   {
     const sh = new Ship('enemy_geb', true, 80, 120), hs = Fighters.hangars(sh)[0];
     [1, 2, 3].forEach(lv => {
-      hs.level = lv; delete hs._fighter;
+      hs.level = lv * 2; hs._fighterMk = lv; delete hs._fighter;      // update256: two pips a tier, her Mk bought to it
       const f = Fighters.of(hs);
       ok(f.hullMax === FIGHTER.HULL[lv - 1] && f.mods.every(m => m.max === FIGHTER.MOD_HP[lv - 1] && m.hp === m.max) && f.lv === lv,
          `level ${lv}: hull ${f.hullMax}, each module ${FIGHTER.MOD_HP[lv - 1]}`);
@@ -46646,7 +46648,7 @@ section('438. jj 22.11 (252): the fighter of mini modules — ENG · O₂ · WPN
     player.assignStations(); enemy.assignStations(); enemy.weapons = []; player.weapons = [];
     T.playerShip = player; T.enemyShip = enemy; T.STATE = 'combat';
     const hs = Fighters.hangars(player)[0], room = player.getRoomById(hs.roomId);
-    powerModule(player, 'hangar', 1);
+    powerModule(player, 'hangar', 2);
     player.crew.forEach(c => { if (c.race === 'terra') c.race = 'aquarius'; });
     const man = player.crew.find(c => !c.isPet);
     man.homeRoomId = room.id; man.roomId = room.id; [man.x, man.y] = player.stationSlot(room, 0); man._waypoints = [];
@@ -47109,6 +47111,146 @@ section('441. jj 23.11 (255): the sharp portraits — T1-T5 sheets as layers (he
   ok(/CrewLayers\.portrait\(f\.seed, f\.race \?\? null, colour, !!f\.bare, 96, !!f\.asleep\)/.test(read('js/crewart.js')),
      'the bunk and the cells paint him asleep');
   ok(/if \(portraitReady\(\)\) \{\s*\/\/ the sharp one/.test(read('js/crewlayers.js')), 'drawn from the sharp layers whenever they are loaded');
+})();
+
+// ============================================================
+section('442. jj 22.11 22:27 (256): the fighter on orders — BOARD a selected hand, LAUNCH and RECALL on the bay, the lift needs a man at the console and power; the bay two power a tier; her Mk bought at a yard; left outside she is lost with her pilot; her shots count');
+// ============================================================
+(function testUpdate256Fighters() {
+  const quiet = (fn) => { const log = console.log, warn = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = log; console.warn = warn; } };
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const sb = loadEngine();
+  const { Ship, SYSTEM_DEFS, CombatManager, Save, Game, Fighters, FIGHTER, Station } = sb;
+  const T = Game.__test;
+  ok(!Fighters.AUTO.on, 'ours fly on orders (AUTO off)');
+
+  // ── 1. THE BAY: TWO POWER A TIER ──
+  const H = SYSTEM_DEFS.hangar;
+  ok(H.maxLevel === 6 && H.powerPerLayer === 2 && H.startLevel === 2, 'the hangar: 6 pips, 2 a tier, it comes with tier 1 (like the shields)');
+  {
+    const sh = new Ship('enemy_geb', false, 100, 100), hs = Fighters.hangars(sh)[0];
+    ok(hs.level === 2 && Fighters.tierOf(hs) === 1, `a carrier's bay is tier 1 (level ${hs.level})`);
+    hs.effectivePower = () => 1;
+    ok(Fighters.poweredTier(hs) === 0 && Fighters.refusal(sh, hs, true) === 'no power', 'one bar of power: the bay is dark — two for a tier');
+    hs.effectivePower = () => 2;
+    ok(Fighters.poweredTier(hs) === 1, 'two bars: tier 1 lit');
+    delete hs.effectivePower;
+    /* the save */
+    const data = sh.serialise(), hd = data.systems.find(x => x.type === 'hangar');
+    ok(hd.pips2 && hd.fighter && hd.fighter.mk === 1 && hd.fighter.lost === false, 'the save keeps the pips and her Mk');
+    hd.level = 1; delete hd.pips2; hd.power = 1;
+    const back = Ship.deserialise(data, false, 100, 100), bh = Fighters.hangars(back)[0];
+    ok(bh.level === 2, `an old save's level-1 hangar is tier 1 now (${bh.level})`);
+  }
+
+  // ── 2. A FIGHT, ON ORDERS ──
+  Save.load(); Save.startRun();
+  const player = new Ship('enemy_geb', true, 80, 120), enemy = new Ship('enemy_frigate', false, 850, 120);
+  [player, enemy].forEach(sh => { sh._allocateDefaultPower(); sh.prechargeShields(); });
+  sb.makeStartingCrew().forEach(c => player.addCrew(c)); sb.makeEnemyCrew(3).forEach(c => enemy.addCrew(c));
+  player.assignStations(); enemy.assignStations(); enemy.weapons = []; player.weapons = [];
+  player.crew.forEach(c => { if (c.race === 'terra') c.race = 'aquarius'; });
+  T.playerShip = player; T.enemyShip = enemy; T.STATE = 'combat';
+  const hs = Fighters.hangars(player)[0], room = player.getRoomById(hs.roomId), f = Fighters.of(hs);
+  powerModule(player, 'hangar', 2);
+  const hands = player.crew.filter(c => !c.isPet);
+  const op = hands[0], pilot = hands[1];
+  const place = (c, slot) => { c.homeRoomId = room.id; c.roomId = room.id; [c.x, c.y] = player.stationSlot(room, slot); c._waypoints = []; };
+  place(op, 0);
+  CombatManager.begin(player, enemy, 'normal');
+  for (let i = 0; i < 60 && !CombatManager.isActive(); i++) CombatManager.update(0.05);
+  const run = (n, fn) => { for (let i = 0; i < n; i++) { if (op.roomId === room.id) [op.x, op.y] = player.stationSlot(room, 0), op._waypoints = []; fn?.(i); CombatManager.update(0.05); } };
+  run(120);
+  ok(f.state === 'docked' && !f.pilot && f.lift === 0 && player.crew.includes(op), 'the man at the console no longer climbs in by himself — she waits for a pilot');
+  ok(/no pilot/.test(Fighters.order(player, hs, 'launch', true, enemy).message), 'LAUNCH with nobody in her: refused, and why');
+  ok(Fighters.boardAt(player, ...(() => { const G = Fighters.geom(player, room); return [(G.px0 + G.px1) / 2, G.rest - G.fighterH / 2]; })()) === hs,
+     'a click on her on the platform finds her bay (BOARD)');
+  pilot._boardFighter = room.id; place(pilot, 1);
+  run(4);
+  ok(f.pilot === pilot && !player.crew.includes(pilot) && pilot._inFighter, 'the hand sent to her climbs in at the bay');
+  const btn = Fighters.buttons(player).map(b => b.label).join(',');
+  ok(btn === 'LAUNCH,PILOT OUT', `her buttons on the bay's wall: ${btn}`);
+  const b0 = Fighters.buttons(player)[0];
+  ok(Fighters.buttonAt(player, b0.x + 2, b0.y + 2)?.act === 'launch', 'a click on LAUNCH is the order');
+  /* no console man: no launch */
+  op.roomId = player.rooms.find(r => r.id !== room.id).id; op.homeRoomId = op.roomId;
+  ok(/console/.test(Fighters.order(player, hs, 'launch', true, enemy).message), 'nobody at the launch console: nobody opens the lift');
+  place(op, 0);
+  hs.effectivePower = () => 1;
+  ok(/2 power/.test(Fighters.order(player, hs, 'launch', true, enemy).message), 'one bar: the bay needs two');
+  delete hs.effectivePower;
+  ok(Fighters.order(player, hs, 'launch', true, enemy).ok, 'pilot, console man, power, a fight: LAUNCH');
+  run(120);
+  ok(f.state === 'out', 'down the lift and out');
+  f.hp = 1;
+  run(40);
+  ok(f.state === 'out', 'hurt, she stays out — she comes home when she is called');
+  /* recall without the console man: she waits under the keel */
+  op.roomId = player.rooms.find(r => r.id !== room.id).id; op.homeRoomId = op.roomId; op.x = player.getRoomById(op.roomId).cx;
+  Fighters.order(player, hs, 'recall');
+  run(120, () => { op.roomId = op.homeRoomId; });
+  ok(f.state === 'returning' && f.lift === 0, `RECALL with nobody at the console: she waits under the keel (${f.state}, lift ${f.lift.toFixed(2)})`);
+  ok(Fighters.status(hs).sub === 'NO LIFT MAN', 'the bay\'s screen says why');
+  place(op, 0);
+  run(200, () => {});
+  ok(f.state === 'docked' && f.pilot === pilot, 'the man back at the console: the lift comes down, she lands — her pilot still in her');
+  const hp0 = f.hp; run(40);
+  ok(f.hp > hp0, 'on her powered platform she mends');
+  /* her shots count */
+  f.hp = f.hullMax; Fighters.order(player, hs, 'launch', true, enemy);
+  let mine = null; run(400, () => { mine = mine ?? CombatManager._projectiles.find(p => p.fromFighter); });
+  ok(mine && mine.gun === `fighter:${hs.roomId}` && mine.gunners[0] === pilot && mine.fromPlayer, 'her shot is her own gun in the Book\'s count, her pilot its gunner');
+  /* the fight ends with her out: she is left outside */
+  ok(f.state === 'out', 'still out when the fight ends');
+  quiet(() => CombatManager.end());
+  ok(f.state === 'outside' && f.pilot === pilot && Fighters.away(player).length === 1, 'the fight over, she is OUTSIDE with her pilot — not home by magic');
+  ok(Fighters.buttons(player).some(b => b.act === 'recall'), 'RECALL on the bay');
+  Fighters.order(player, hs, 'recall');
+  for (let i = 0; i < 120; i++) { [op.x, op.y] = player.stationSlot(room, 0); op.roomId = room.id; Fighters.idle(0.05, player); }
+  ok(f.state === 'docked' && !Fighters.away(player).length, 'recalled on the map: docked');
+  ok(Fighters.order(player, hs, 'out').ok && !f.pilot && player.crew.includes(pilot), 'PILOT OUT: he climbs out');
+  /* left behind */
+  f.state = 'outside'; f.pilot = pilot; player.crew = player.crew.filter(c => c !== pilot); pilot._inFighter = true;
+  const lost = Fighters.abandon(player);
+  ok(lost[0] === pilot && pilot.dead && f.state === 'lost' && f.noRebuild, 'a jump with her outside: she and her pilot are lost');
+  for (let i = 0; i < 200; i++) Fighters.idle(0.5, player);
+  ok(f.state === 'lost', 'ours are not rebuilt by the bay');
+  ok(Fighters.status(hs).t === 'NO FIGHTER', 'the bay says so');
+
+  // ── 3. THE YARD ──
+  const st = new Station(2, 4242);
+  st.refusal = () => null;
+  Save.updateRun({ scrap: 5000 });
+  const idx = player.systems.indexOf(hs);
+  ok(quiet(() => st.upgradeFighter(player, Save.getRun(), idx)).ok === false, 'no Mk up for an empty bay');
+  const r1 = quiet(() => st.buyFighter(player, Save.getRun(), idx));
+  ok(r1.ok && f.state === 'docked' && Fighters.markOf(hs) === 1, `a yard sells a new one: ${r1.message}`);
+  const r2 = quiet(() => st.upgradeFighter(player, Save.getRun(), idx));
+  ok(!r2.ok && /tier 2/.test(r2.message), `Mk 2 needs a tier 2 bay: ${r2.message}`);
+  const r3 = quiet(() => st.upgradeSystemAt(player, Save.getRun(), idx));
+  ok(r3.ok && hs.level === 4, `the bay up a tier: two pips (${hs.level})`);
+  const r4 = quiet(() => st.upgradeFighter(player, Save.getRun(), idx));
+  ok(r4.ok && Fighters.markOf(hs) === 2 && f.hullMax === FIGHTER.HULL[1], `then her Mk 2: ${r4.message}`);
+  ok(player.serialise().systems.find(x => x.type === 'hangar').fighter.mk === 2, 'her Mk is saved');
+
+  // ── 4. NO SHOTS AT A WRECK ──
+  {
+    const E2 = new Ship('enemy_frigate', false, 850, 120); E2.isDerelict = true;
+    const g = Fighters.of(hs); g.state = 'out'; g.cd = 0; g.pilot = null;
+    const proj = [];
+    for (let i = 0; i < 40; i++) Fighters.step(0.05, player, E2, hs, true, { _projectiles: proj });
+    ok(proj.length === 0, 'a wreck is never shot at');
+    g.state = 'docked';
+  }
+
+  // ── 5. THE WIRING ──
+  const G = read('js/game.js');
+  ok((G.match(/_fighterJumpOk\(\)/g) ?? []).length >= 3, 'both jumps (the map and a retreat) ask about her first');
+  ok(/_handleFighterClick\(\) \|\| _handleDoorClick\(\)/.test(G) && /Fighters\.boardAt\(_playerShip, mx, my\)/.test(G), 'the bay\'s buttons and the BOARD click');
+  ok(/Fighters\.idle\(dt, _playerShip\)/.test(G), 'her lift runs on the map');
+  ok(/planFighter\(selRoom\)/.test(read('js/portview.js')) && /op === 'fighterBuy' \|\| a\.op === 'fighterUp'/.test(G), 'the yard: the bay on the left, her fighter on the right');
+  ok(/p\.fromFighter && p\.pilot/.test(read('js/combat.js')), 'her pilot learns from her hits');
 })();
 
 // ============================================================

@@ -1273,7 +1273,7 @@ const UI = (() => {
           } else {
             const sys   = selRoom.system;
             const idx   = ship.systems.indexOf(sys);
-            const step  = sys.type === 'shields' ? 2 : 1;
+            const step  = (sys.type === 'shields' || sys.type === 'hangar') ? 2 : 1;
             const max   = sys.level + step > (sys.def?.maxLevel ?? 8);
             const cost  = s.systemUpgradeCost(sys);
             const lvlTxt = sys.type === 'shields'

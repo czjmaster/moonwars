@@ -701,7 +701,7 @@ class Station {
     const sys = ship.systems[sysIndex];
     if (!sys || sys.type === 'reactor')
       return { ok: false, message: 'Use the Reactor tab for that.' };
-    const step = sys.type === 'shields' ? 2 : 1;
+    const step = (sys.type === 'shields' || sys.type === 'hangar') ? 2 : 1;    // a hangar's tier is two pips too (update256)
     const max  = sys.def?.maxLevel ?? 8;
     if (sys.level + step > max)
       return { ok: false, message: `${sys.label} already at max level.` };
@@ -710,7 +710,7 @@ class Station {
     sys.level += step;
     Save.updateRun({ scrap: run.scrap - cost });
     Audio.sfx.levelUp();
-    const shown = sys.type === 'shields' ? `${sys.level / 2}/3` : `${sys.level}`;
+    const shown = (sys.type === 'shields' || sys.type === 'hangar') ? `${sys.level / 2}/3` : `${sys.level}`;
     return { ok: true, cost, message: `${sys.label} upgraded to level ${shown}.` };
   }
 
@@ -720,6 +720,10 @@ class Station {
    * driven by LAYER number, not pip number.
    */
   systemUpgradeCost(sys) {
+    if (sys.type === 'hangar') {                   // a tier, like a shield layer (update256)
+      const tier = Math.floor(sys.level / 2);
+      return Math.round((50 + tier * 50) * Math.pow(UPGRADE_GROWTH, tier)) + this.sector * 5;
+    }
     if (sys.type === 'shields') {
       const layer = sys.level / 2;                 // layers already fitted
       return Math.round((40 + layer * 45) * Math.pow(UPGRADE_GROWTH, layer))
@@ -733,6 +737,42 @@ class Station {
     const premium = sys.type === 'autorepair' ? AUTOREPAIR_PREMIUM : 1;
     return Math.round((18 + lvl * 10) * Math.pow(UPGRADE_GROWTH, Math.max(0, lvl - 1)) * premium)
          + this.sector * 5;
+  }
+
+  /* ── THE FIGHTER AT THE YARD (update256, jj 22.11: „myśliwce i roboty można kupić w stacjach, tak samo upgrade —
+     jak dajemy upgrade hangaru, obok mamy do wyboru upgrade myśliwca") ── a new one for a bay that lost hers, and the
+     next Mk for one whose bay has the tier for it. */
+  fighterCost(sys) { return 140 + 30 * this.sector; }
+  fighterUpgradeCost(sys) {
+    const mk = (typeof Fighters !== 'undefined') ? Fighters.markOf(sys) : 1;
+    return Math.round((90 + mk * 70) * Math.pow(UPGRADE_GROWTH, mk - 1)) + this.sector * 5;
+  }
+  buyFighter(ship, run, sysIndex) {
+    const closed = this.refusal(); if (closed) return { ok: false, message: closed };
+    const sys = ship.systems[sysIndex];
+    if (!sys || sys.type !== 'hangar' || typeof Fighters === 'undefined') return { ok: false, message: 'No hangar there.' };
+    if (!Fighters.isLost(sys)) return { ok: false, message: 'That bay has her fighter.' };
+    const cost = this.fighterCost(sys);
+    if (run.scrap < cost) return { ok: false, message: 'Insufficient CC.' };
+    Save.updateRun({ scrap: run.scrap - cost });
+    Fighters.restore(sys);
+    Audio.sfx.levelUp?.();
+    return { ok: true, cost, message: `A new fighter in the ${sys.label} — Mk ${Fighters.markOf(sys)}.` };
+  }
+  upgradeFighter(ship, run, sysIndex) {
+    const closed = this.refusal(); if (closed) return { ok: false, message: closed };
+    const sys = ship.systems[sysIndex];
+    if (!sys || sys.type !== 'hangar' || typeof Fighters === 'undefined') return { ok: false, message: 'No hangar there.' };
+    if (Fighters.isLost(sys)) return { ok: false, message: 'Buy her first — the bay is empty.' };
+    const mk = Fighters.markOf(sys);
+    if (mk >= 3) return { ok: false, message: 'Mk 3 — the best a yard builds.' };
+    if (mk + 1 > Math.floor(sys.level / 2)) return { ok: false, message: `Mk ${mk + 1} needs a tier ${mk + 1} hangar — upgrade the bay first.` };
+    const cost = this.fighterUpgradeCost(sys);
+    if (run.scrap < cost) return { ok: false, message: 'Insufficient CC.' };
+    Save.updateRun({ scrap: run.scrap - cost });
+    Fighters.setMark(sys, mk + 1);
+    Audio.sfx.levelUp?.();
+    return { ok: true, cost, message: `Fighter rebuilt as a Mk ${mk + 1}.` };
   }
 
   /** Buy a brand-new module from stock — converts an empty room. */

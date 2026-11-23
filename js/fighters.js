@@ -67,6 +67,7 @@ const FIGHTER = {
   DOGFIGHT_HIT: 0.55,      // the chance one fighter's burst finds another (before her dodge)
   DODGE: 0.25,             // her dodge with engine and helm whole; + DODGE_SKILL a level of her pilot's piloting
   DODGE_SKILL: 0.03,
+  EYE_SKILL: 0.03,         // + her pilot's weapons skill a level, in a dogfight (update256)
   HOME_AT: 0.34,           // she comes home with her hull under this share of it…
   GO_AT: 0.6,              // …and goes out again from this share
   MEND: 0.25,              // hull a second, docked on a working hangar (the modules and the droid as fast)
@@ -110,8 +111,17 @@ const Fighters = (() => {
   const SOCKET = (SPANS.parts[3][0] + SPANS.parts[3][1]) / 2;     // the droid's socket: the bulkhead behind the cockpit
   const modMid = (i) => (SPANS.mods[i][0] + SPANS.mods[i][1]) / 2;
 
-  /** The level her hangar gives her (1..3). */
-  function levelOf(sys) { return Math.max(1, Math.min(FIGHTER.HULL.length, sys?.level ?? 1)); }
+  /* update256: THE BAY'S TIER AND HER MARK. A hangar is two pips a tier (like the shields); her Mk is bought at a
+     yard and is never more than the bay's tier. Theirs fly the Mk of their bay. */
+  function tierOf(sys) { return Math.max(1, Math.min(FIGHTER.HULL.length, Math.floor((sys?.level ?? 2) / 2))); }
+  function markOf(sys) { return Math.max(1, Math.min(FIGHTER.HULL.length, sys?._fighterMk ?? sys?._fighterSave?.mk ?? 1)); }
+  /** The level she flies at (1..3): her Mk, capped by her bay's tier. */
+  function levelOf(sys) { return Math.max(1, Math.min(markOf(sys), tierOf(sys))); }
+  /** The powered tier: two bars a tier — under 2 the bay is dark. */
+  function poweredTier(sys) {
+    if (!sys || sys.isDisabled?.()) return 0;
+    return Math.floor((sys.effectivePower?.() ?? 0) / (sys.def?.powerPerLayer ?? 2));
+  }
   function hullMax(f) { return f.hullMax ?? FIGHTER.HP; }
 
   /** A whole fighter for this hangar's level. */
@@ -129,8 +139,10 @@ const Fighters = (() => {
   function of(sys) {
     if (!sys) return null;
     if (!sys._fighter) {
+      const S = sys._fighterSave;
       sys._fighter = { state: 'docked', lift: 0, x: 0, y: 0, vx: 0, vy: 0, face: 1, cd: 1.5, t: 0, wp: null, wpT: 0,
-                       tracer: null, rebuild: 0, pilot: null, ejected: [], tgts: [], ...fresh(sys) };
+                       tracer: null, rebuild: 0, pilot: null, ejected: [], tgts: [], order: 'hold', ...fresh(sys) };
+      if (S?.lost) { sys._fighter.state = 'lost'; sys._fighter.hp = 0; sys._fighter.noRebuild = true; }
     }
     return sys._fighter;
   }
@@ -152,6 +164,7 @@ const Fighters = (() => {
   function refusal(ship, sys, fighting) {
     if (!sys) return 'no hangar';
     if (sys.isDisabled()) return sys.workingLevels <= 0 ? 'the hangar is wrecked' : 'no power';
+    if (poweredTier(sys) < 1) return 'no power';                    // two bars at least, like a shield layer (update256)
     const f = sys._fighter;
     if (f?.pilot) { if (!pilotOk(f.pilot)) return 'the pilot is down'; }
     else if (!consoleMan(ship, sys)) return 'nobody at the launch console';
@@ -161,7 +174,7 @@ const Fighters = (() => {
 
   /** How often she fires, by the hangar's powered level. */
   function fireEvery(sys) {
-    const lv = Math.max(1, Math.min(FIGHTER.FIRE_EVERY.length, Math.floor(sys.effectivePower?.() ?? 1)));
+    const lv = Math.max(1, Math.min(FIGHTER.FIRE_EVERY.length, poweredTier(sys) || 1));
     return FIGHTER.FIRE_EVERY[lv - 1];
   }
 
@@ -347,6 +360,10 @@ const Fighters = (() => {
     if (!room) return;
     const G = geom(ship, room);
     f._G = G;
+    if (ours(ship)) return stepOurs(dt, ship, foe, sys, fighting, combat, f, G);
+    /* theirs fly the Mk of their bay */
+    if (!ship.isPlayer) sys._fighterMk = tierOf(sys);
+    if (f.state === 'docked' && f.lv !== levelOf(sys) && f.lift <= 0) refit(f, sys);
     const why = refusal(ship, sys, fighting && foe && !foe.destroyed);
     f.why = why;
     const liftTo = (t) => {
@@ -398,6 +415,217 @@ const Fighters = (() => {
       }
     }
   }
+
+
+  /* ══ OURS FLY ON ORDERS (update256) ══════════════════════════════════════════════════════════════════════════
+   * jj 22.11: „lot myśliwca nie powinien być automatyczny — musimy zaznaczyć załoganta i dać na samolot komendę
+   * »wejdź«; jak pilot jest plus gość w hangarze przy konsoli, możemy wysłać myśliwiec, tak samo go zawołać; jak nie
+   * ma załoganta przy konsoli, nikt nie otworzy windy — myśliwiec nie może wrócić; tak samo jak nie ma energii".
+   *
+   *   BOARD     a selected hand, a click on her on the platform: he walks to the bay and climbs in.
+   *   LAUNCH    a pilot in her, a man at the launch console, two bars of power and a fight on: down, and out.
+   *   RECALL    she flies under the bay; the lift comes down for her only with a man at the console and power —
+   *             without them she waits under the keel. Home, she mends on her platform (a powered bay).
+   *   PILOT OUT on the platform, the lift up: he climbs out.
+   * She does not come home on her own any more (only with her pilot down). The fight over, she is still out there:
+   * RECALL her — jump away with her outside and she is lost, her pilot with her. Shot down, she is not rebuilt: a
+   * yard sells a new one (station.buyFighter). */
+  /** On orders: ours — unless AUTO (the old automatic bay of update250, kept for theirs and the tests of 436–438). */
+  const AUTO = { on: false };
+  function ours(ship) { return !!ship?.isPlayer && !AUTO.on; }
+  function liftWorks(ship, sys) { return poweredTier(sys) >= 1 && !!consoleMan(ship, sys); }
+  function liftWhy(ship, sys) {
+    if (sys.workingLevels <= 0) return 'the hangar is wrecked';
+    if (poweredTier(sys) < 1) return 'the bay needs 2 power';
+    if (!consoleMan(ship, sys)) return 'nobody at the launch console';
+    return null;
+  }
+  /** Her own ship, the fight to go to — or why not. */
+  function launchWhy(ship, sys, f, fightOn) {
+    if (f.state === 'lost') return 'she was lost — a yard sells a new one';
+    if (!f.pilot) return 'no pilot — select a hand and click her';
+    if (!pilotOk(f.pilot)) return 'the pilot is hurt';
+    const lw = liftWhy(ship, sys); if (lw) return lw;
+    if (!fightOn) return 'no fight to fly into';
+    return null;
+  }
+  function fightOnFor(fighting, foe) { return !!(fighting && foe && !foe.destroyed && !foe.isDerelict && !foe._hullDown && !foe.surrendered); }
+
+  function stepOurs(dt, ship, foe, sys, fighting, combat, f, G) {
+    const fightOn = fightOnFor(fighting, foe);
+    const liftTo = (t) => {
+      const d = dt / FIGHTER.LIFT_TIME;
+      f.lift = f.lift < t ? Math.min(t, f.lift + d) : Math.max(t, f.lift - d);
+    };
+    if (f.tracer) { f.tracer.t -= dt; if (f.tracer.t <= 0) f.tracer = null; }
+    if (f.state !== 'lost' && f.state !== 'outside') droid(dt, f);
+    const lw = liftWhy(ship, sys);
+    f.why = f.state === 'docked' ? launchWhy(ship, sys, f, fightOn) : lw;
+    switch (f.state) {
+      case 'docked': {
+        if (!sys.isDisabled()) mend(dt, f);
+        if (!f.pilot && f.lift <= 0) boardWaiting(ship, sys, f);
+        if (f.pilot && !pilotOk(f.pilot) && f.lift <= 0) { disembark(ship, sys, f); f.order = 'hold'; }
+        if (f.order === 'launch' && !fightOn) f.order = 'hold';
+        const go = f.order === 'launch' && !launchWhy(ship, sys, f, fightOn);
+        liftTo(go ? 1 : 0);
+        if (go && f.lift >= 1) {
+          const s = onPlatform(ship, G, 1);
+          f.state = 'out'; f.order = 'out'; f.x = s.x; f.y = s.floor - G.fighterH / 2; f.face = s.face;
+          f.vx = s.face * FIGHTER.SPEED * 0.6; f.vy = 0; f.cd = 1.2; f.wp = null;
+          if (typeof Audio !== 'undefined') Audio.sfx?.weaponCharge?.();
+        }
+        break;
+      }
+      case 'out': {
+        if (life(dt, ship, sys, f)) break;
+        liftTo(0);
+        if (f.order === 'recall' || !pilotOk(f.pilot)) { f.state = 'returning'; f.order = 'recall'; break; }
+        if (fightOn) fly(dt, f, ship, foe, G, combat, sys);
+        else loiter(dt, f, ship, G);
+        break;
+      }
+      case 'returning': {
+        if (life(dt, ship, sys, f)) break;
+        if (f.order === 'launch' && pilotOk(f.pilot) && fightOn) { f.state = 'out'; f.order = 'out'; break; }
+        const s = onPlatform(ship, G, 1), tx = s.x, ty = s.floor - G.fighterH / 2;
+        if (lw) {                                                    // nobody to open the lift: she waits under the keel
+          liftTo(0);
+          steer(dt, f, tx, ty + G.fighterH * 0.8 + 10, 1);
+          break;
+        }
+        liftTo(1);
+        steer(dt, f, tx, ty, 1);
+        if (f.lift >= 1 && Math.hypot(tx - f.x, ty - f.y) < 3) { f.state = 'docked'; f.order = 'hold'; f.vx = f.vy = 0; }
+        break;
+      }
+      case 'outside': {                                              // out there after a fight, off the screen
+        if (f.order === 'recall' && !lw) {
+          liftTo(1);
+          if (f.lift >= 1) { f.state = 'docked'; f.order = 'hold'; f.vx = f.vy = 0; }
+        } else liftTo(0);
+        break;
+      }
+      case 'lost': {
+        liftTo(0);
+        f.order = 'hold';
+        break;
+      }
+    }
+  }
+
+  /** No fight: she flies a slow round under her own ship. */
+  function loiter(dt, f, ship, G) {
+    const b = ship.roomBounds ? ship.roomBounds() : null;
+    if (!b) return;
+    f.wpT -= dt;
+    if (!f.wp || f.wpT <= 0) { f.wp = { x: b.x + b.w * (0.25 + rnd() * 0.5), y: b.y + b.h + FIGHTER.STAND_OFF + 24 }; f.wpT = 3 + rnd() * 2; }
+    steer(dt, f, f.wp.x, f.wp.y, 1);
+  }
+
+  /** The hand sent to her (`c._boardFighter`) climbs in once he stands in the bay. */
+  function boardWaiting(ship, sys, f) {
+    const c = ship.crew.find(k => k && k._boardFighter === sys.roomId);
+    if (!c) return;
+    if (!pilotOk(c) || c.isPet || (c.homeRoomId != null && c.homeRoomId !== sys.roomId)) { c._boardFighter = null; return; }
+    if (c.roomId !== sys.roomId || (c._waypoints?.length ?? 0) > 0) return;
+    c._boardFighter = null;
+    board(ship, f, c);
+    c.homeRoomId = sys.roomId;
+    if (typeof UI !== 'undefined') UI.notify?.(`${c.name} is in the cockpit — LAUNCH from the hangar.`, 'info');
+  }
+
+  /** An order from the hangar's buttons: 'launch' | 'recall' | 'out' (the pilot climbs out) | 'hold'. {ok, message} */
+  function order(ship, sys, act, fighting = false, foe = null) {
+    const f = of(sys);
+    if (act === 'out') {
+      if (f.state !== 'docked' || f.lift > 0 || !f.pilot) return { ok: false, message: 'She is not on her platform.' };
+      disembark(ship, sys, f); f.order = 'hold';
+      return { ok: true, message: 'The pilot climbs out.' };
+    }
+    if (act === 'launch') {
+      if (f.state === 'returning') { f.order = 'launch'; return { ok: true, message: 'Back into the fight.' }; }
+      const why = launchWhy(ship, sys, f, fightOnFor(fighting, foe));
+      if (why) return { ok: false, message: `LAUNCH — ${why}.` };
+      f.order = 'launch';
+      return { ok: true, message: 'Launching — the lift is going down.' };
+    }
+    if (act === 'recall') {
+      if (f.state !== 'out' && f.state !== 'returning' && f.state !== 'outside') return { ok: false, message: 'She is home.' };
+      f.order = 'recall';
+      const lw = liftWhy(ship, sys);
+      return { ok: true, message: lw ? `Recalled — but ${lw}: she waits under the keel.` : 'Recalled — the lift is coming down for her.' };
+    }
+    f.order = 'hold';
+    return { ok: true, message: 'Launch called off.' };
+  }
+
+  /** Her buttons on the bay's wall (ours): [{x, y, w, h, label, act, sys, on}] */
+  function buttons(ship) {
+    if (!ours(ship)) return [];
+    const out = [];
+    hangars(ship).forEach(sys => {
+      const room = roomOf(ship, sys), f = sys._fighter;
+      if (!room || !f) return;
+      const list = [];
+      if (f.state === 'docked' && f.lift <= 0 && f.pilot) list.push(['LAUNCH', 'launch'], ['PILOT OUT', 'out']);
+      else if (f.state === 'docked' && f.order === 'launch') list.push(['HOLD', 'hold']);
+      else if (f.state === 'out') list.push(['RECALL', 'recall']);
+      else if (f.state === 'returning') list.push(['LAUNCH', 'launch']);
+      else if (f.state === 'outside' && f.order !== 'recall') list.push(['RECALL', 'recall']);
+      const bw = 46, bh = 13;
+      list.forEach(([label, act], i) => out.push({ x: room.x + 4 + i * (bw + 3), y: room.y + 4, w: bw, h: bh, label, act, sys,
+                                                   on: !(act === 'launch' && f.state === 'docked' && f.why) }));
+    });
+    return out;
+  }
+  function buttonAt(ship, x, y) {
+    return buttons(ship).find(b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) ?? null;
+  }
+  /** Our hangar whose fighter stands on her platform, empty, under (x, y) — for the BOARD order. */
+  function boardAt(ship, x, y) {
+    if (!ours(ship)) return null;
+    for (const sys of hangars(ship)) {
+      const f = sys._fighter, room = roomOf(ship, sys);
+      if (!f || !room || f.state !== 'docked' || f.lift > 0 || f.pilot) continue;
+      const G = geom(ship, room), s = onPlatform(ship, G, 0);
+      if (x >= s.x - s.len / 2 && x <= s.x + s.len / 2 && y >= s.floor - G.fighterH - 4 && y <= s.floor + 4) return sys;
+    }
+    return null;
+  }
+  /** Away from the ship (out, coming home, or left outside after a fight) — a jump would leave her behind. */
+  function away(ship) {
+    return hangars(ship).filter(sys => { const f = sys._fighter; return f && ['out', 'returning', 'outside'].includes(f.state); });
+  }
+  /** We jumped with her outside: she and her pilot are lost (jj: „zostawiony = tracimy pilota i myśliwiec"). */
+  function abandon(ship) {
+    const lost = [];
+    away(ship).forEach(sys => {
+      const f = sys._fighter, c = f.pilot;
+      if (c) { c._inFighter = false; c.dead = true; c.hp = 0; c.state = 'dead'; lost.push(c); }
+      f.pilot = null; f.state = 'lost'; f.hp = 0; f.lift = 0; f.order = 'hold'; f.noRebuild = true;
+    });
+    return lost;
+  }
+  /** Off the fight's clock (the map, a wreck): her lift and her orders still run. */
+  function idle(dt, ship) {
+    if (!ship) return;
+    hangars(ship).forEach(sys => step(dt, ship, null, sys, false, null));
+  }
+  // ── the yard ────────────────────────────────────────────────
+  function isLost(sys) { return of(sys).state === 'lost'; }
+  function setMark(sys, mk) {
+    sys._fighterMk = Math.max(1, Math.min(FIGHTER.HULL.length, mk));
+    const f = of(sys);
+    if (f.state !== 'lost') { const keep = { state: f.state, pilot: f.pilot, lift: f.lift, order: f.order }; refit(f, sys); Object.assign(f, keep); }
+  }
+  function restore(sys) {
+    const f = of(sys);
+    refit(f, sys); f.state = 'docked'; f.lift = 0; f.order = 'hold'; f.noRebuild = false;
+    if (sys._fighterSave) sys._fighterSave.lost = false;
+  }
+  /** What the save keeps of her: her Mk, and whether the bay is empty. */
+  function saveOf(sys) { const f = sys._fighter; return { mk: markOf(sys), lost: f ? f.state === 'lost' : !!sys._fighterSave?.lost }; }
 
   /** Docked on a working hangar: hull, modules, droid and air come back. */
   function mend(dt, f) {
@@ -453,6 +681,7 @@ const Fighters = (() => {
 
   /** Out: pick a point off her hull, go there, shoot. */
   function fly(dt, f, ship, foe, G, combat, sys) {
+    if (!foe || foe.isDerelict || foe._hullDown) return loiter(dt, f, ship, G);     // never a wreck (jj 22.11)
     const b = foe.roomBounds ? foe.roomBounds() : null;
     if (!b) return;
     f.wpT -= dt;
@@ -471,9 +700,14 @@ const Fighters = (() => {
       const tSys = theirs[0], t = tSys._fighter;
       f.cd = fireEvery(sys) * 0.6;
       f.face = t.x >= f.x ? 1 : -1;
-      const hit = rnd() < FIGHTER.DOGFIGHT_HIT && rnd() >= dodge(t);
+      /* her pilot's eye: his weapons skill (update256) */
+      const eye = FIGHTER.DOGFIGHT_HIT + FIGHTER.EYE_SKILL * (f.pilot?.getSkillLevel?.('weapons') ?? 0);
+      const hit = rnd() < eye && rnd() >= dodge(t);
       f.tracer = { x0: f.x + f.face * 30, y0: f.y, x1: t.x, y1: t.y + (hit ? 0 : 14), t: 0.14 };
-      if (hit) hitModule(foe, tSys, Math.floor(rnd() * t.mods.length), 1, FIGHTER.SHOT.crewDamage);
+      if (hit) {
+        hitModule(foe, tSys, Math.floor(rnd() * t.mods.length), 1, FIGHTER.SHOT.crewDamage);
+        f.pilot?.addXP?.('weapons', (typeof XP_RATES !== 'undefined' ? XP_RATES.weapons ?? 16 : 16) / 2);
+      }
       return;
     }
     const rooms = (foe.rooms ?? []).filter(r => r.system || r.type !== 'empty');
@@ -483,8 +717,14 @@ const Fighters = (() => {
     f.face = room.cx >= f.x ? 1 : -1;
     if (combat?._projectiles && typeof Projectile !== 'undefined') {
       const p = new Projectile({ x: f.x + f.face * 30, y: f.y, targetX: room.cx, targetY: room.cy, speed: FIGHTER.SHOT.projectileSpeed,
-                                 type: 'laser', def: FIGHTER.SHOT, defKey: 'laser_basic', fromPlayer: !!ship.isPlayer });
+                                 type: 'laser', def: FIGHTER.SHOT, defKey: 'laser_basic', fromPlayer: !!ship.isPlayer,
+                                 gunners: f.pilot ? [f.pilot] : [] });
       p.fromFighter = true;
+      /* HER SHOTS COUNT (update256, jj: „strzały myśliwca nie są liczone"): her own gun in the Book's combos and
+         finishes, her pilot's kills and XP */
+      p.gun = `fighter:${sys.roomId}`;
+      p.gunners = f.pilot ? [f.pilot] : [];
+      p.pilot = f.pilot ?? null;
       combat._projectiles.push(p);
       if (typeof Audio !== 'undefined') Audio.sfx?.weaponFire?.('laser', 'laser_basic');
     }
@@ -493,7 +733,8 @@ const Fighters = (() => {
   /** Shot down (or fallen with her pilot dead): the hangar builds another. A live pilot ejects — picked up after the
    *  fight; a dead one goes with her. */
   function shootDown(ship, f, pilotDead = false) {
-    f.state = 'lost'; f.rebuild = FIGHTER.REBUILD; f.hp = 0;
+    f.state = 'lost'; f.rebuild = FIGHTER.REBUILD; f.hp = 0; f.order = 'hold';
+    if (ours(ship)) f.noRebuild = true;                              // ours: a yard sells a new one (update256)
     const c = f.pilot;
     f.pilot = null;
     if (c && !c.dead && !pilotDead) {
@@ -505,8 +746,8 @@ const Fighters = (() => {
     if (typeof Audio !== 'undefined') Audio.sfx?.hullHit?.();
     if (typeof UI !== 'undefined' && !pilotDead) {
       UI.notify?.(ship.isPlayer
-        ? (c && !c.dead ? `Our fighter is down — ${c.name} ejected; we pick him up after the fight. The hangar is building another.`
-                        : 'Our fighter is down — the hangar is building another.')
+        ? (c && !c.dead ? `Our fighter is down — ${c.name} ejected; we pick him up after the fight. A yard sells a new one.`
+                        : 'Our fighter is down — a yard sells a new one.')
         : 'Their fighter is down!', ship.isPlayer ? 'alert' : 'good');
     }
   }
@@ -518,14 +759,19 @@ const Fighters = (() => {
       const f = of(sys);
       /* theirs: the fight is over and they lost it or we left — their pilot flies off (no live man appears in a wreck) */
       if (!ship.isPlayer) { if (f.pilot) f.pilot._inFighter = false; f.pilot = null; f.ejected = []; }
-      if (f.pilot) disembark(ship, sys, f);
+      /* OURS STAY WHERE THEY ARE (update256): one in the air is left outside — RECALL her before the jump; her pilot
+         stays in her on the platform until he is ordered out */
+      if (ours(ship)) {
+        if (['out', 'returning'].includes(f.state)) { f.state = 'outside'; f.tracer = null; if (f.order !== 'recall') f.order = 'hold'; }
+        if (f.state === 'docked' && f.lift > 0 && f.order === 'launch') f.order = 'hold';
+      } else if (f.pilot) disembark(ship, sys, f);
       (f.ejected ?? []).forEach(c => {
         c._ejected = false;
         if (!c.dead) c.hp = Math.max(1, Math.min(c.hp, Math.round(c.maxHp * FIGHTER.EJECT_HP)));
         putBack(ship, sys, c);
       });
       f.ejected = [];
-      if (f.state !== 'lost') { f.state = 'docked'; f.lift = 0; f.vx = f.vy = 0; f.tracer = null; refit(f, sys); }
+      if (!ours(ship) && f.state !== 'lost') { f.state = 'docked'; f.lift = 0; f.vx = f.vy = 0; f.tracer = null; refit(f, sys); }
     });
   }
 
@@ -575,6 +821,24 @@ const Fighters = (() => {
   /** Inside the room (drawn with the room). */
   function drawInRoom(ctx, ship, room) {
     drawLift(ctx, ship, room, { x: room.x, y: room.floorTop, w: room.w, h: room.floorH });
+    /* her orders on the bay's wall (update256) */
+    const mouse = (typeof Input !== 'undefined') ? Input.mouse : null;
+    buttons(ship).filter(b => b.sys.roomId === room.id).forEach(b => {
+      const over = mouse && mouse.x >= b.x && mouse.x <= b.x + b.w && mouse.y >= b.y && mouse.y <= b.y + b.h;
+      ctx.save();
+      ctx.fillStyle = !b.on ? 'rgba(20,22,30,0.85)' : over ? 'rgba(26,255,140,0.35)' : 'rgba(8,24,18,0.85)';
+      ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.strokeStyle = b.on ? '#1aff8c' : '#4a4f5a'; ctx.lineWidth = 1; ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1);
+      ctx.fillStyle = b.on ? '#d8ffe8' : '#7a808c'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 + 0.5);
+      ctx.restore();
+    });
+    /* an empty cockpit: how to get a pilot in */
+    const f = room.system?._fighter;
+    if (ours(ship) && f && f.state === 'docked' && !f.pilot && f.lift <= 0) {
+      ctx.save(); ctx.fillStyle = 'rgba(200,220,255,0.75)'; ctx.font = '7px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText('NO PILOT: select a hand, click her', room.x + 4, room.y + 5); ctx.restore();
+    }
   }
   /** Under the keel (drawn after the hull). */
   function drawBelow(ctx, ship) {
@@ -788,17 +1052,21 @@ const Fighters = (() => {
   /** The line on the hangar's screen: what she is doing. */
   function status(sys) {
     const f = of(sys);
-    if (f.state === 'lost') return { t: `BUILD ${Math.ceil(Math.max(0, f.rebuild))}s`, col: '#ffb020', sub: 'SHOT DOWN' };
+    if (f.state === 'lost') return f.noRebuild ? { t: 'NO FIGHTER', col: '#ff6a5a', sub: 'BUY AT A YARD' }
+                                               : { t: `BUILD ${Math.ceil(Math.max(0, f.rebuild))}s`, col: '#ffb020', sub: 'SHOT DOWN' };
+    if (f.state === 'outside') return { t: 'OUTSIDE', col: '#ffd700', sub: f.order === 'recall' ? (f.why ? f.why.toUpperCase().slice(0, 14) : 'LANDING') : 'RECALL HER' };
     if (f.state === 'out') return { t: 'IN FLIGHT', col: '#1aff8c', sub: `HULL ${Math.ceil(f.hp)}/${hullMax(f)}` };
-    if (f.state === 'returning') return { t: 'RETURNING', col: '#ffd700', sub: f.why ? f.why.toUpperCase().slice(0, 14) : 'LANDING' };
+    if (f.state === 'returning') return { t: f.why ? 'WAITING' : 'RETURNING', col: '#ffd700', sub: f.why ? (f.why.includes('console') ? 'NO LIFT MAN' : 'NO LIFT POWER') : 'LANDING' };
     if (f.lift > 0) return { t: 'LAUNCHING', col: '#8fe4ff', sub: `LIFT ${Math.round(f.lift * 100)}%` };
     if (f.pilot) return { t: 'BOARDED', col: '#8fe4ff', sub: String(f.pilot.name ?? 'PILOT').toUpperCase().slice(0, 14) };
-    return { t: 'DOCKED', col: '#7a90a8', sub: f.why === 'nobody at the launch console' ? 'NO PILOT' : f.why === 'no power' ? 'NO POWER' : 'READY' };
+    return { t: `DOCKED Mk${f.lv ?? 1}`, col: '#7a90a8', sub: f.why === 'nobody at the launch console' ? 'NO CONSOLE MAN' : /power/.test(f.why ?? '') ? 'NO POWER' : 'NO PILOT' };
   }
 
   return { of, hangars, refusal, fireEvery, geom, platformY, update, step, settle, drawInRoom, drawBelow, drawAir, drawFighter, status,
            shootDown, modRects, airRects, target, targetAt, targetLive, aimFor, track, receiveHit, hitModule, dodge, crewAway,
-           board, disembark, refit, levelOf, SPANS, SOCKET };
+           board, disembark, refit, levelOf, SPANS, SOCKET,
+           tierOf, markOf, poweredTier, setMark, isLost, restore, saveOf, order, buttons, buttonAt, boardAt, away, abandon, idle,
+           liftWhy, launchWhy, AUTO };
 })();
 
 if (typeof window !== 'undefined') { window.Fighters = Fighters; window.FIGHTER = FIGHTER; }

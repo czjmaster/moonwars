@@ -33,7 +33,7 @@ const Game = (() => {
 const MENU_ITEMS = ['ENTER BASE','OPTIONS','NEW GAME'];
 /* THE BUILD ON THE TITLE SCREEN (update254, jj 23.11): 0.<update> until the release (then 1.0.0). Raised with
    every package. */
-const GAME_VERSION = '0.255';
+const GAME_VERSION = '0.256';
 /* THE TITLE SCREEN (update123, jj: "co do menu zrób to, co napisałeś"):
    your own hull drifting past the Moon with its roof on, a line under
    ENTER BASE saying what is waiting in there, and NEW GAME — behind a
@@ -1201,6 +1201,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        — as in a fight. A port is `_updateStation`: off the clock, nothing drawn. */
     if (_playerShip && typeof Tanks !== 'undefined') { Tanks.ensure(_playerShip); _playerShip._tankLive = true; }
     if (_playerShip) _playerShip.update(dt);
+    if (_playerShip && typeof Fighters !== 'undefined') Fighters.idle(dt, _playerShip);   // her lift and orders on the map (update256)
     if (_playerShip && typeof Tanks !== 'undefined' && dt > 0) Tanks.update(_playerShip, dt);
 
     /* THE FILE SWALLOWS THE MAP. While it is open nothing behind it
@@ -1806,6 +1807,36 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     }
     const why = _jumpRefusal();
     if (why) { UI.notify(why, 'alert'); return false; }
+    return _fighterJumpOk();
+  }
+
+  /** THE HANGAR'S BUTTONS (update256): LAUNCH · RECALL · PILOT OUT · HOLD on the bay's wall. */
+  function _handleFighterClick() {
+    if (!_playerShip || _bodyMenu || typeof Fighters === 'undefined') return false;
+    const b = Fighters.buttonAt(_playerShip, Input.mouse.x, Input.mouse.y);
+    if (!b) return false;
+    if (_needCommander?.(b.label)) return true;
+    const fighting = STATE === 'combat' && (CombatManager.isActive?.() || CombatManager.state === 'active');
+    const r = Fighters.order(_playerShip, b.sys, b.act, fighting, STATE === 'combat' ? _enemyShip : null);
+    UI.notify(r.message, r.ok ? 'info' : 'warn');
+    return true;
+  }
+
+  /** A JUMP WITH HER OUTSIDE (update256): the first try warns, a second within 6 s leaves her — and her pilot. */
+  let _fighterWarnAt = -1e9;
+  function _fighterJumpOk() {
+    if (typeof Fighters === 'undefined' || !_playerShip) return true;
+    const away = Fighters.away(_playerShip);
+    if (!away.length) return true;
+    const now = performance.now();
+    if (now - _fighterWarnAt > 6000) {
+      _fighterWarnAt = now;
+      UI.notify('Our fighter is still outside — RECALL her first. Jump again to leave her and her pilot behind.', 'alert');
+      return false;
+    }
+    _fighterWarnAt = -1e9;
+    const lost = Fighters.abandon(_playerShip);
+    UI.notify(lost.length ? `We left the fighter behind — and ${lost.map(c => c.name).join(', ')} with her.` : 'We left the fighter behind.', 'alert');
     return true;
   }
 
@@ -2050,7 +2081,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       // buttons BEFORE this runs and flags the press as spent. Assigning
       // here wiped that flag, so the same press fell through to
       // _crewClickResolve, hit no room, and cleared the selection.
-      _pressConsumed = _handlePowerBarClick() || _handleDoorClick() || _pressConsumed;
+      _pressConsumed = _handlePowerBarClick() || _handleFighterClick() || _handleDoorClick() || _pressConsumed;
       _pressHadWeapon = !!_selectedWeapon;   // weapon targeting wins the click
       _dragStart  = _pressConsumed ? null : { x: mx, y: my };
       _dragActive = false;
@@ -2289,6 +2320,22 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       }
     }
 
+    /* BOARD HER (update256, jj: „zaznaczyć załoganta i dać na samolot komendę »wejdź«"): a selected hand and a
+       click on the fighter on her platform — he walks to the bay and climbs in. */
+    const bay = (typeof Fighters !== 'undefined' && !_pressHadWeapon) ? Fighters.boardAt(_playerShip, mx, my) : null;
+    if (bay) {
+      const m = sel.find(c => _playerShip.crew.includes(c) && c.alive && !c.isPet && !c.isPrisoner && c.state !== 'injured');
+      const bayRoom = _playerShip.getRoomById(bay.roomId);
+      if (!m || !bayRoom) { UI.notify('Select a fit hand to fly her.', 'warn'); return; }
+      _playerShip.crew.forEach(k => { if (k._boardFighter === bay.roomId) k._boardFighter = null; });
+      m.homeRoomId = bayRoom.id;
+      m._boardFighter = bayRoom.id;
+      const [tx, ty] = _playerShip.stationSlot(bayRoom, 1);
+      m.moveToOnShip(_playerShip, tx, ty);
+      if (m.roomId !== bayRoom.id) m._disengage = { from: m.roomId };
+      UI.notify(`${m.name} goes to the fighter.`, 'info');
+      return;
+    }
     const room = _playerShip.rooms.find(r => r.contains(mx, my));
     // Clicking off the hull drops the selection — the counterpart to
     // "a live selection turns clicks into orders", and the way you get
@@ -4090,6 +4137,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         if (_fuelAboard() <= 0) _maybeSOS();
         return;
       }
+      if (!_fighterJumpOk()) return;
     }
     if (!_sectorMap.travelTo(nodeId)) return;
     _jumpPrompt = false;
@@ -7700,6 +7748,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       const room = sh.getRoomById(a.roomId), sys = room?.system;
       if (!sys) return;
       r = st.upgradeSystemAt(sh, run, sh.systems.indexOf(sys)); label = `${sys.label} +1`;
+    } else if (a.op === 'fighterBuy' || a.op === 'fighterUp') {        // the hangar's fighter (update256)
+      const room = sh.getRoomById(a.roomId), sys = room?.system;
+      if (!sys) return;
+      r = a.op === 'fighterBuy' ? st.buyFighter(sh, run, sh.systems.indexOf(sys)) : st.upgradeFighter(sh, run, sh.systems.indexOf(sys));
+      label = a.op === 'fighterBuy' ? 'Fighter' : 'Fighter Mk +1';
     } else if (a.op === 'install') {
       const o = PortView.planOffers().find(q => q.key === a.offer);
       if (!o) return;

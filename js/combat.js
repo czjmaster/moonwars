@@ -1241,6 +1241,8 @@ class Combat {
       /* FINISH HER! (update182): every shot of ours that reached a room
          is a step of some recipe — finish.js decides which. */
       if (p.fromPlayer && result?.roomHit && typeof Finish !== 'undefined') Finish.noteHit(p, result.roomHit);
+      /* her pilot learns from her hits (update256) */
+      if (p.fromFighter && p.pilot && !p.pilot.dead && result && !result.dodged) p.pilot.addXP?.('weapons', (typeof XP_RATES !== 'undefined' ? XP_RATES.weapons ?? 16 : 16) / 2);
 
       if (result.dodged) Combat._flyOn(p);          // it missed: on it goes (update126)
       else if (typeof WeaponArt === 'undefined') Particles.laserHit(p.x, p.y);
