@@ -883,6 +883,17 @@ class Combat {
       return null;
     };
     const gunnersNow = enemy.crew.filter(c => c.alive && postOf(c) === 'gun').length;
+    /* CAN HE GET THERE (update253, jj 22.11: „zniszczyłem przeciwnikowi reaktor i winda nie działała — załogant nie mógł
+       zejść, a pewnie był przypisany; na dole był załogant, który mógł to naprawić, a nic nikt nie robił"). The nearest
+       man was picked as the crow flies — up on the other deck with the lift dark — and his job kept everybody else off
+       it. A man on the same deck, or one with a working lift to it, is the one who can go. */
+    const roomAt = (x, y) => enemy.rooms.find(r => r.contains?.(x, y)) ?? null;
+    const reach = (c, x, y) => {
+      const from = enemy.getRoomById(c.roomId), to = roomAt(x, y);
+      if (!from || !to) return true;
+      if (Math.abs(from.y - to.y) < 4) return true;                       // one deck
+      return !!enemy.elevators?.findPath?.(c.x, c.y, y);                 // a lift that runs
+    };
     const pickBest = (x, y, skill, urgent = false, force = false) => {
       // Spiders do NOT crew the hulk they nest in. They were being
       // dispatched to repair modules and fight fires like a proper crew,
@@ -890,7 +901,7 @@ class Combat {
       /* Not a prisoner, and not one of OURS standing on their deck (update107,
          jj): a captive thawed out of their bay was handed a repair job here. */
       const idle = enemy.crew.filter(c => c.task === TASK.IDLE && c.alive && !c.isPet && !c._healing
-                                       && !c.isPrisoner && !c.isPlayer);
+                                       && !c.isPrisoner && !c.isPlayer && reach(c, x, y));
       if (!idle.length) return null;
       let pool = idle.filter(c => !postOf(c));
       /* Nobody spare: only the reactor or a fire may take the shield man
@@ -909,7 +920,7 @@ class Combat {
        * goes — one at a time — and walks back when the job is done. */
       if (!pool.length) {
         const aboard = (c) => c.alive && !c.isPet && !c.isPrisoner && !c.isPlayer && enemy.getRoomById(c.roomId);
-        const spare = enemy.crew.some(c => aboard(c) && !postOf(c));
+        const spare = enemy.crew.some(c => aboard(c) && !postOf(c) && reach(c, x, y));   // a spare hand who cannot get there is none (update253)
         const fixing = enemy.crew.some(c => c.alive && c.task === TASK.REPAIR);
         /* A FIRE TAKES THE LAST MAN (update230, jj: „wróg ma priority gasić pożary, teraz
            nieraz zostawia, nie ugasza"). A man already mending a module used to block this
@@ -1001,6 +1012,12 @@ class Combat {
     repairOrder.forEach(sys => {
       if (sys.damagedLevels <= 0) return;
       // Someone already on it? Skip.
+      /* a man on it who cannot get there (the lift died under him) is not „on it" — he goes back to his post */
+      enemy.crew.forEach(c => {
+        if (c.alive && c.task === TASK.REPAIR && c.taskTarget === sys.roomId && c.roomId !== sys.roomId && !reach(c, sys.cx, sys.cy)) {
+          c.task = TASK.IDLE; c.taskTarget = null;
+        }
+      });
       const busy = enemy.crew.some(c =>
         !c.dead && !c.dying &&
         c.task === TASK.REPAIR && c.taskTarget === sys.roomId);

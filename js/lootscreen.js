@@ -670,6 +670,65 @@ const LootScreen = (() => {
     _drawDetail(ctx);
     _drawButtons(ctx);
     _drawArmPick(ctx);
+    if (!_carry) _drawHoverTip(ctx);
+    ctx.restore();
+  }
+
+  /* WHAT IT IS, UNDER THE MOUSE (update253, jj 22.11: „info itemów powinno się wyświetlać jako hover, jak najedziemy
+     na przedmiot, aby gracz mógł zawsze przeczytać info o przedmiocie"). Reading only: the cursor still selects
+     nothing (update48) — a click does. */
+  function hoverItem(mx = Input.mouse.x, my = Input.mouse.y) {
+    for (const which of ['wreck', 'hold']) {
+      if (which === 'wreck' && !_wreck) continue;
+      const c = _cellAt(which, mx, my);
+      if (!c) continue;
+      const it = c.grid.at?.(c.cx, c.cy);
+      if (it) return it;
+    }
+    return null;
+  }
+  function tipLines(it) {
+    const gun = (it.def.kind === 'weapon' && typeof WEAPON_DEFS !== 'undefined') ? WEAPON_DEFS[it.meta] : null;
+    const out = [it.label + (gun && gun.label !== it.label ? ` — ${gun.label}` : '') + (it.damaged ? '  (spoiled)' : '')];
+    const desc = gun ? `${gun.role || ''} ${it.def.desc || ''}`.trim() : (it.def.desc || '');
+    if (desc) out.push(desc);
+    const bits = [`${it.w}×${it.h}`];
+    if (gun) bits.push(`${gun.damage} dmg × ${gun.shots ?? 1}`, `charge ${gun.chargeTime}s`, `${gun.powerCost} power`);
+    if (it.isVessel) bits.push(`${Math.round(it.litres)} / ${Math.round(it.litresMax)} L`);
+    else if (it.isStack) bits.push(`${it.qty} / ${it.stackMax}`);
+    out.push(bits.join('  ·  '));
+    return out;
+  }
+  function _drawHoverTip(ctx) {
+    const it = hoverItem();
+    if (!it) return;
+    const mx = Input.mouse.x, my = Input.mouse.y, lines = tipLines(it);
+    ctx.save();
+    ctx.font = '11px Share Tech Mono, monospace';
+    /* a long description wraps at 300 px */
+    const wrap = [];
+    lines.forEach((ln, i) => {
+      if (i === 0) { wrap.push({ t: ln, head: true }); return; }
+      let cur = '';
+      ln.split(' ').forEach(wd => { const t = cur ? cur + ' ' + wd : wd; if (ctx.measureText(t).width > 300 && cur) { wrap.push({ t: cur }); cur = wd; } else cur = t; });
+      if (cur) wrap.push({ t: cur });
+    });
+    ctx.font = '13px Orbitron, monospace';
+    const headW = ctx.measureText(wrap[0].t).width;
+    ctx.font = '11px Share Tech Mono, monospace';
+    const w = Math.min(340, Math.max(headW, ...wrap.slice(1).map(l => ctx.measureText(l.t).width)) + 20);
+    const h = 14 + wrap.length * 15;
+    let x = mx + 16, y = my + 18;
+    if (x + w > 1276) x = mx - w - 12;
+    if (y + h > 716) y = my - h - 10;
+    ctx.fillStyle = 'rgba(8,12,22,0.96)'; ctx.beginPath(); ctx.roundRect(x, y, w, h, 5); ctx.fill();
+    ctx.strokeStyle = it.def.col || '#4db8ff'; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(x + 0.5, y + 0.5, w - 1, h - 1, 5); ctx.stroke();
+    ctx.textAlign = 'left';
+    wrap.forEach((l, i) => {
+      ctx.fillStyle = l.head ? (it.def.col || '#4db8ff') : i === wrap.length - 1 ? '#9fb4cc' : '#7a90a8';
+      ctx.font = l.head ? '13px Orbitron, monospace' : '11px Share Tech Mono, monospace';
+      ctx.fillText(l.t, x + 10, y + 18 + i * 15);
+    });
     ctx.restore();
   }
 
@@ -1348,7 +1407,7 @@ const LootScreen = (() => {
            forceClose: () => (_hold && !_done ? _finish() : null),
            // exposed for tests — button positions shift as buttons are
            // added, so tests ask for them by name instead of guessing.
-           _cellAt, _gridRect, sidePanels, _act,
+           _cellAt, _gridRect, sidePanels, _act, hoverItem, tipLines,
            /** The two grids this screen is editing, BY IDENTITY.
             *  A test that only compares contents cannot tell one shelf
             *  from a copy of it — and a copy of the shelf was exactly

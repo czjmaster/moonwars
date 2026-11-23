@@ -393,6 +393,8 @@ function loadEngine({ stopBefore, realStart = false } = {}) {
   if (sandbox.DockArt?.HOME_SEQ) sandbox.DockArt.HOME_SEQ.on = false;   // the home landing, the ship view after take-off, the hold after the report (update214)
   if (sandbox.Ship?.FOE_AWAY) sandbox.Ship.FOE_AWAY.on = false;   // enemy ships fly away from you (update215)
   if (sandbox.PATROL) sandbox.PATROL.on = false;   // the Lunar Patrol near a sector's end (update231): her own tests switch her on
+  if (sandbox.BaseScreen?.HANGAR_EXTRAS) sandbox.BaseScreen.HANGAR_EXTRAS.on = true;   // the hangar's building links and SELL (update253: off in the game; the old suites keep them)
+  if (sandbox.SECTOR_GATE) sandbox.SECTOR_GATE.on = false;   // one contract length at a time (update253): its own tests switch it on
   if (sandbox.Ship) { sandbox.Ship._cacheVentsReal = sandbox.Ship.cacheVents; sandbox.Ship.cacheVents = () => false; }
   return sandbox;
 }

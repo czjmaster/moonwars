@@ -4688,8 +4688,21 @@ const Renderer = (() => {
     ctx.fillText(`FALLEN  ${fallen.length}`, x + 16, y0 + 196);
     list(x, y0 + 220, fallen, 8, 'nobody — all came back');
 
+    /* THE SCORE (update253): the total counting up, its grade, and the biggest parts of it */
+    const S = T.score ?? (typeof RunTally !== 'undefined' && RunTally.score ? RunTally.score(T) : null);
+    if (S) {
+      const gy = y0 + ch + 34, gc = { S: '#ffd700', A: '#1aff8c', B: '#4db8ff', C: '#c8d8f0', D: '#ff7a6a' }[S.grade] ?? '#c8d8f0';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#8ba0b8'; ctx.font = F(13); ctx.fillText('SCORE', cx - 150, gy);
+      ctx.fillStyle = '#ffffff'; ctx.font = '30px Orbitron, monospace'; ctx.fillText(up(S.total).toLocaleString('en'), cx - 30, gy + 4);
+      ctx.fillStyle = gc; ctx.font = '34px Orbitron, monospace'; ctx.fillText(S.grade, cx + 120, gy + 6);
+      ctx.font = F(10); ctx.fillStyle = gc; ctx.fillText('GRADE', cx + 120, gy + 20);
+      const top = S.parts.slice().sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 6)
+        .map(([k, v]) => `${k} ${v > 0 ? '+' : ''}${v}`).join('   ·   ');
+      ctx.fillStyle = '#5f7893'; ctx.font = F(11); ctx.fillText(top, cx, gy + 40);
+    }
     ctx.textAlign = 'center'; ctx.fillStyle = '#4a6080'; ctx.font = F(12);
-    ctx.fillText('Press [ENTER] to continue', cx, y0 + ch + 40);
+    ctx.fillText('Press [ENTER] to continue', cx, y0 + ch + (S ? 100 : 40));
     ctx.restore();
   }
 

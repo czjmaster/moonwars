@@ -17,6 +17,8 @@
 'use strict';
 
 const BaseScreen = (() => {
+  /* the hangar's links to the other buildings and its SELL button (update253: off — jj) */
+  const HANGAR_EXTRAS = { on: false };
 
   // The warehouse SHELF used to be a tab of its own. It is a supply line
   // like He2 and missiles, so it lives on the SUPPLY tab with them — one
@@ -451,6 +453,9 @@ const BaseScreen = (() => {
     if (!_screen && !modal && !_town && Input.isPressed('Escape')) {
       return _act('town');      // ESCAPE behind a door: back out into the town
     }
+    if (!_screen && !modal && _town && Input.isPressed('Escape')) {
+      return _act('mainMenu');  // ESCAPE in the town: the main menu (update253)
+    }
     if (!_screen && !modal && !_town && _tab === 'HANGAR' && Input.isPressed('KeyI')) return _act('interior');
     const tabWheel = _town ? 0 : wheel;      // no list scrolls behind the town
     if (tabWheel && _tab === 'CREW') {
@@ -790,6 +795,8 @@ const BaseScreen = (() => {
          the base does what it does for every other screen change: names
          the action and lets game.js pick it up (update57). */
       case 'continue': return 'continue';
+      /* BACK TO THE MAIN MENU (update253, jj 22.11: „wyjście do głównego menu — teraz tylko F5 działa") */
+      case 'mainMenu': return 'mainMenu';
       case 'doLaunch': {
         _commitPack();
         _departEntry = Base.get().ships[_shipIdx] ?? null;
@@ -1878,6 +1885,10 @@ const BaseScreen = (() => {
     T('MODULES', C.x + 18, y, '#4db8ff', 10, 'left', true);
     T('levels go up at a port DRYDOCK', C.x + C.w - 18, y, '#5f7893', 9, 'right');
     _hangarModules(ctx, hullModules(sh), C.x + 18, y + 8, C.w - 36, 2, true, T);
+    /* THE LINKS AND THE SALE ARE GONE FROM HERE (update253, jj 22.11: „w hangarze te przyciski: sell this hull, armory,
+       barracks, mess, supply — wymaż stamtąd"). The buildings have their row at the top; `HANGAR_EXTRAS.on` brings
+       them back. */
+    if (!HANGAR_EXTRAS.on) return;
     // where the rest of her is looked after (jj: "dobrze, aby gracz mógł łatwo poruszać się po bazie")
     R.links.forEach(L => _btn(ctx, L.x, L.y, L.w, L.h, `${_building(L.tab)?.name ?? L.tab} ▶`,
       { act: 'building', arg: L.tab, col: '#4db8ff', font: '10px Share Tech Mono, monospace', sub: L.what }));
@@ -2584,7 +2595,8 @@ const BaseScreen = (() => {
         const picked = _commanderId === c.id;
         _btn(ctx, x + 24, y + 108, w - 48, 22, picked ? '✓ FLYING' : 'FLY HIM', { act: 'pickCommander', arg: c.id, on: picked, col: '#1aff8c' });
         const owed = (typeof Commander !== 'undefined') ? Commander.pointsOwed(c) : 0;
-        _btn(ctx, x + 24, y + 196, w - 48, 18, owed > 0 ? `LEVEL UP (${owed})` : 'TABLETS',
+        /* „TABLETS" said nothing to a new player (update253, jj 22.11): his kit and what he knows */
+        _btn(ctx, x + 24, y + 196, w - 48, 18, owed > 0 ? `LEVEL UP (${owed})` : '◆ KIT & SKILLS',
              { act: owed > 0 ? 'levelUp' : 'cpu', arg: c.id, col: owed > 0 ? '#ffd700' : '#b8c4d4', font: '10px Share Tech Mono, monospace' });
       }
       _zones.push({ x, y: y - 6, w, h: 200, act: 'dossier', arg: c.id });      // last: the buttons win
@@ -3707,7 +3719,7 @@ const BaseScreen = (() => {
         crate(c.x + 12 + Math.round((96 - (2 * P - 4)) / 2), c.y + 36 + Math.round((96 - (P - 4)) / 2), j);
         T(`×${j.crates}`, c.x + 104, c.y + 128, '#ffd780', 12, 'right', true);
       }
-      T(_clip(ctx, j.client, c.w - 130), c.x + 118, c.y + 52, '#e8f4ff', 11, 'left', true);
+      T(_clip(ctx, j.client, c.w - 176), c.x + 118, c.y + 52, '#e8f4ff', 11, 'left', true);   // room for the sector badge (update253)
       T('deliver to', c.x + 118, c.y + 72, '#5f7893', 10);
       const where = Base.jobWhere(j).split(', ');
       T(where[0], c.x + 118, c.y + 86, '#e8f4ff', 11);
@@ -3720,11 +3732,23 @@ const BaseScreen = (() => {
         c.x + 12, c.y + 172, '#a8b8cc', 10);
       if (vip) T('eats with the crew · has HP', c.x + 12, c.y + 186, '#a8b8cc', 10);
       if (con) T('frozen · no power and they work the door', c.x + 12, c.y + 186, '#a8b8cc', 10);
-      T(`needs a run of ${j.sector}+ sector${j.sector > 1 ? 's' : ''}`, c.x + 12, c.y + (vip || con ? 206 : 192), '#7a90a8', 10);
+      /* ITS SECTOR, BIG, AND WHY IT CANNOT BE TAKEN (update253, jj 22.11: „misje więzienne lub transportowe są
+         pokazane, że nie można wziąć; info, jaki sektor, powinno być bardziej pokazane — może ikonka sektorów 1, 2"):
+         a badge with the sector's number on the card, and the reason in words where the button is. */
+      const gateOn = typeof SECTOR_GATE !== 'undefined' && SECTOR_GATE.on && typeof sectorsCleared === 'function';
+      const locked = !j.taken && gateOn && (j.sector ?? 1) > sectorsCleared() + 1;
+      const noSlabs = !j.taken && con && _jobSlabs() < nc;
+      { const bx = c.x + c.w - 46, by = c.y + 32;
+        F(bx, by, 36, 36, locked ? 'rgba(255,85,102,0.18)' : 'rgba(122,208,255,0.14)');
+        ctx.strokeStyle = locked ? '#ff5566' : '#7ad0ff'; ctx.lineWidth = 1; ctx.strokeRect(bx + 0.5, by + 0.5, 35, 35);
+        T('SECTOR', bx + 18, by + 10, locked ? '#ff8899' : '#7ad0ff', 7, 'center', true);
+        T(String(j.sector ?? 1), bx + 18, by + 31, locked ? '#ff5566' : '#e8f4ff', 18, 'center', true, 'Orbitron'); }
+      T(`needs a run of ${j.sector}+ sector${j.sector > 1 ? 's' : ''}`, c.x + 12, c.y + (vip || con ? 206 : 192), locked ? '#ff5566' : '#7a90a8', 10);
+      if (noSlabs) T(`this hull has ${_jobSlabs()} slab${_jobSlabs() === 1 ? '' : 's'} — fit carbonite before launch`, c.x + 12, c.y + 220, '#ffb020', 9);
       _zones.push({ x: c.x, y: c.y, w: c.w, h: c.h - 44, act: 'jobPick', arg: c.i });
       const full = !j.taken && taken.length >= max;
-      _btn(ctx, c.btn.x, c.btn.y, c.btn.w, c.btn.h, j.taken ? 'DROP IT' : full ? `${max} JOBS ALREADY` : 'TAKE THE JOB',
-           { act: full ? null : j.taken ? 'jobDrop' : 'jobTake', arg: j.id, enabled: !full, col: j.taken ? '#7a90a8' : '#1aff8c', font: '11px Share Tech Mono, monospace' });
+      _btn(ctx, c.btn.x, c.btn.y, c.btn.w, c.btn.h, j.taken ? 'DROP IT' : locked ? `LOCKED — FINISH ${(j.sector ?? 1) - 1}-SECTOR FIRST` : full ? `${max} JOBS ALREADY` : 'TAKE THE JOB',
+           { act: full || locked ? null : j.taken ? 'jobDrop' : 'jobTake', arg: j.id, enabled: !full && !locked, col: j.taken ? '#7a90a8' : '#1aff8c', font: '11px Share Tech Mono, monospace' });
     });
 
     // ── the loading bay: what goes aboard at launch ──
@@ -3798,8 +3822,10 @@ const BaseScreen = (() => {
     const hs = Save.hunts?.() ?? [];
     if (hs.length) T(`+ ${hs.length} hunt${hs.length > 1 ? 's' : ''} (WANTED)`, C.x + 16, C.y + 390, '#ff9a4d', 11);
     const full = !j.taken && taken.length >= max;
-    _btn(ctx, R.act.x, R.act.y, R.act.w, R.act.h, j.taken ? 'DROP THIS JOB' : full ? `${max} JOBS ALREADY` : 'TAKE THIS JOB',
-         { act: full ? null : j.taken ? 'jobDrop' : 'jobTake', arg: j.id, enabled: !full, col: j.taken ? '#c8d8f0' : '#1aff8c',
+    const shut = !j.taken && typeof SECTOR_GATE !== 'undefined' && SECTOR_GATE.on && typeof sectorsCleared === 'function'
+              && (j.sector ?? 1) > sectorsCleared() + 1;                                     // update253
+    _btn(ctx, R.act.x, R.act.y, R.act.w, R.act.h, j.taken ? 'DROP THIS JOB' : shut ? `SECTOR ${j.sector} LOCKED` : full ? `${max} JOBS ALREADY` : 'TAKE THIS JOB',
+         { act: full || shut ? null : j.taken ? 'jobDrop' : 'jobTake', arg: j.id, enabled: !full && !shut, col: j.taken ? '#c8d8f0' : '#1aff8c',
            font: '14px Orbitron, monospace', sub: j.taken ? 'no fine before you launch' : full ? 'drop one first' : con ? 'into your slabs at launch' : vip ? 'he boards at launch' : 'its crates go aboard at launch' });
   }
 
@@ -4872,7 +4898,10 @@ const BaseScreen = (() => {
     const cap = _commanderId ? Base.commanderById?.(_commanderId) : null;
     const C = R.cmdSlot;
     if (cap) {
-      Renderer.drawCrewCard(ctx, cap, C.x, C.y, 'M', { w: C.w, h: C.h, commander: true, hint: 'click: back to the mess', skillStrip: true });
+      Renderer.drawCrewCard(ctx, cap, C.x, C.y, 'M', { w: C.w - 78, h: C.h, commander: true, hint: 'click: back to the mess', skillStrip: true });
+      /* HIS KIT AND SKILLS, FROM HERE (update253, jj 22.11: „w loadout, jak mamy kapitana, powinien mieć gdzieś ikonkę
+         prowadzącą do jego info i aby móc dodać tablety"): the tablet board, which shows him too. */
+      _btn(ctx, C.x + C.w - 74, C.y, 74, C.h, '◆ KIT', { act: 'cpu', arg: cap.id, col: '#ffd060', font: '12px Orbitron, monospace', sub: 'tablets · skills' });
     } else {
       ctx.save();
       ctx.fillStyle = 'rgba(40,32,10,0.35)'; ctx.beginPath(); ctx.roundRect(C.x, C.y, C.w, C.h, 5); ctx.fill();
@@ -5568,6 +5597,8 @@ const BaseScreen = (() => {
     ctx.fillStyle = '#5f7893';
     ctx.font = '10px Share Tech Mono, monospace';
     ctx.fillText('click a place  ·  keys 1-9', W - 150, 33);
+    /* the way out to the main menu (update253) */
+    _btn(ctx, W - 470, 14, 150, 28, '◂ MAIN MENU', { act: 'mainMenu', col: '#7a90a8', font: '12px Orbitron, monospace', sub: '[ESC]' });
     ctx.fillStyle = '#1aff8c';
     ctx.font = '19px Share Tech Mono, monospace';
     ctx.fillText(`${Base.cc()} CC`, W - 26, 35);
@@ -5647,7 +5678,7 @@ const BaseScreen = (() => {
   }
 
   return {
-    open, update, draw, consumeLaunch, DEPART, HELM_GATE, keeperLine: (kp) => _keeperLine(kp, Base.get()), helmRefusal: () => _helmRefusal(), departing: () => _departing, consumeCpu, consumeLevelUp, packGrids, commitPack,
+    open, update, draw, consumeLaunch, DEPART, HELM_GATE, HANGAR_EXTRAS, keeperLine: (kp) => _keeperLine(kp, Base.get()), helmRefusal: () => _helmRefusal(), departing: () => _departing, consumeCpu, consumeLevelUp, packGrids, commitPack,
     liveShelf,
     // exposed for tests
     _levels: _entryLevels,

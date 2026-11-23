@@ -3226,7 +3226,7 @@ const BREAKS = [
   {
     name: '#80 the deck draws nothing over his head at all',
     file: F('crew.js'),
-    from: "    if (!this.dead && typeof Renderer !== 'undefined'",
+    from: "    if (!this.dead && !this._hullDown && typeof Renderer !== 'undefined'",
     to:   "    if (false && typeof Renderer !== 'undefined'",
   },
   {
@@ -8007,8 +8007,8 @@ const BREAKS = [
   {
     name: "#107 their AI puts a prisoner to work",
     file: F('combat.js'),
-    from: "\n                                       && !c.isPrisoner && !c.isPlayer);",
-    to:   ");",
+    from: "\n                                       && !c.isPrisoner && !c.isPlayer && reach(c, x, y));",
+    to:   " && reach(c, x, y));",
   },
   {
     name: "#107 the escapee stays on their deck",
@@ -10755,7 +10755,7 @@ const BREAKS = [
   {
     name: "#139 the foot forgets the fuel",
     file: F('nodeview.js'),
-    from: "    else if (fuel != null && fuel <= 0) { foot = 'JUMP · 1 He2 — the tanks are dry'; footCol = COL.bad; }\n",
+    from: "    else if (fuel != null && fuel <= 0) { foot = `JUMP · ${_L(1)} L He2 — the tanks are dry`; footCol = COL.bad; }\n",
     to:   "",
   },
   {
@@ -14343,8 +14343,8 @@ const BREAKS = [
   {
     name: "#181 no helium gift at the start",
     file: F('game.js'),
-    from: "    try { Base.giveHeliumGift?.(); } catch (e) { console.warn('[Game] helium gift:', e); }\n",
-    to:   "",
+    from: "on the shelf */\n    try { Base.giveHeliumGift?.(); } catch (e) { console.warn('[Game] helium gift:', e); }\n",
+    to:   "on the shelf */\n",
   },
   {
     name: "#181 the gift every start",
@@ -14565,8 +14565,8 @@ const BREAKS = [
   {
     name: "#182 no records to start",
     file: F("game.js"),
-    from: "    try { Base.giveRecordGift?.(); } catch (e) { console.warn('[Game] record gift:', e); }\n",
-    to:   "",
+    from: "    /* A PAPYRUS AND A SEAL (update182) — once per save, on the shelf */\n    try { Base.giveRecordGift?.(); } catch (e) { console.warn('[Game] record gift:', e); }\n",
+    to:   "    /* A PAPYRUS AND A SEAL (update182) — once per save, on the shelf */\n",
   },
   {
     name: "#182 the records gift every start",
@@ -14877,7 +14877,7 @@ const BREAKS = [
   {
     name: "#185 their dead are thrown out too",
     file: F("game.js"),
-    from: "    _playerShip.crew = _playerShip.crew.filter(c => c.isPlayer || c.dead);",
+    from: "    _playerShip.crew = _playerShip.crew.filter(c => !intruders.includes(c));",
     to:   "    _playerShip.crew = _playerShip.crew.filter(c => c.isPlayer);",
   },
   {
@@ -18114,6 +18114,187 @@ const BREAKS = [
     file: F('ship.js'),
     from: "  bunker_small: { w: 1008, h: 378, ox: 256, oy: 78,\n    sockets: true,\n",
     to:   "  bunker_small: { w: 1008, h: 378, ox: 256, oy: 78,\n",
+  },
+  /* ── update253: jj 22.11 22:27 — menu, helmet, gifts, their repair, litres, marks, bodies, puffs, F5, tips, the man on the card, the lift, the base, sound, surrender, score ── */
+  {
+    name: "#253 no way to the main menu",
+    file: F('basescreen.js'),
+    from: "      case 'mainMenu': return 'mainMenu';",
+    to:   "",
+  },
+  {
+    name: "#253 ESC in the town does nothing",
+    file: F('basescreen.js'),
+    from: "      return _act('mainMenu');  // ESCAPE in the town",
+    to:   "      return null;  // ESCAPE in the town",
+  },
+  {
+    name: "#253 the helmet is cut again",
+    file: F('crewlayers.js'),
+    from: "  const PORTRAIT_CROP = 50;",
+    to:   "  const PORTRAIT_CROP = 46;",
+  },
+  {
+    name: "#253 no gifts on a NEW GAME",
+    file: F('game.js'),
+    from: "had none until a reload */\n    try { Base.giveHeliumGift?.(); } catch (e) { console.warn('[Game] helium gift:', e); }\n",
+    to:   "had none until a reload */\n",
+  },
+  {
+    name: "#253 the far man is sent to repair",
+    file: F('combat.js'),
+    from: "&& !c.isPrisoner && !c.isPlayer && reach(c, x, y));",
+    to:   "&& !c.isPrisoner && !c.isPlayer);",
+  },
+  {
+    name: "#253 a spare man who cannot get there blocks the last hand",
+    file: F('combat.js'),
+    from: "&& !postOf(c) && reach(c, x, y));   // a spare hand",
+    to:   "&& !postOf(c));   // a spare hand",
+  },
+  {
+    name: "#253 burnt He2 shows units",
+    file: F('rewardview.js'),
+    from: "    if ((d.fuel ?? 0) < 0) return { kind: 'fuelBurn', badge: `−${_L(-d.fuel)} L He2` };",
+    to:   "    if ((d.fuel ?? 0) < 0) return { kind: 'fuelBurn', badge: `${d.fuel} He2` };",
+  },
+  {
+    name: "#253 a He2 card in units",
+    file: F('rewardview.js'),
+    from: "case 'fuel': return { kind: 'fuel', badge: `+${Array.isArray(v) ? `${_L(v[0])}–${_L(v[1])}` : _L(v)} L He2` };",
+    to:   "case 'fuel': return { kind: 'fuel', badge: `+${n} He2` };",
+  },
+  {
+    name: "#253 marks over a dead hull's men",
+    file: F('crew.js'),
+    from: "if (!this.dead && !this._hullDown && typeof Renderer",
+    to:   "if (!this.dead && typeof Renderer",
+  },
+  {
+    name: "#253 the falling boarder is thrown out",
+    file: F('game.js'),
+    from: "const intruders = _playerShip.crew.filter(c => !c.isPlayer && !c.dead && !c.dying);",
+    to:   "const intruders = _playerShip.crew.filter(c => !c.isPlayer && !c.dead);",
+  },
+  {
+    name: "#253 no puffs on the autopilot",
+    file: F('game.js'),
+    from: "      _packPuff(m, c, dt);\n",
+    to:   "",
+  },
+  {
+    name: "#253 no frost on the dead",
+    file: F('game.js'),
+    from: "        _drawFrost(ctx, k, t);\n",
+    to:   "",
+  },
+  {
+    name: "#253 F5 skips the fight",
+    file: F('game.js'),
+    from: "    _markFight(difficulty, nebula, opts);\n",
+    to:   "",
+  },
+  {
+    name: "#253 the fight is never struck off",
+    file: F('game.js'),
+    from: "  function _leaveFight(view = 'ship') {\n    _clearFight();",
+    to:   "  function _leaveFight(view = 'ship') {",
+  },
+  {
+    name: "#253 no item tips",
+    file: F('lootscreen.js'),
+    from: "    if (!_carry) _drawHoverTip(ctx);\n",
+    to:   "",
+  },
+  {
+    name: "#253 the man on the card is not the one who joins",
+    file: F('game.js'),
+    from: "const c = result.crewRec instanceof CrewMember ? result.crewRec : new CrewMember({});",
+    to:   "const c = new CrewMember({});",
+  },
+  {
+    name: "#253 he walks on the spot at the lift",
+    file: F('crew.js'),
+    from: "      if (this._animState === 'walk') this._setAnim('idle');\n      if (shaft.cabinAt(wp.srcY, 14)) {",
+    to:   "      if (shaft.cabinAt(wp.srcY, 14)) {",
+  },
+  {
+    name: "#253 the hangar links and SELL are back",
+    file: F('basescreen.js'),
+    from: "  const HANGAR_EXTRAS = { on: false };",
+    to:   "  const HANGAR_EXTRAS = { on: true };",
+  },
+  {
+    name: "#253 the sidearm goes with the promotion",
+    file: F('base.js'),
+    from: "    if (rec.sidearm && typeof CrewArms !== 'undefined') {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#253 no KIT in the loadout",
+    file: F('basescreen.js'),
+    from: "      _btn(ctx, C.x + C.w - 74, C.y, 74, C.h, '◆ KIT', { act: 'cpu', arg: cap.id, col: '#ffd060', font: '12px Orbitron, monospace', sub: 'tablets · skills' });\n",
+    to:   "",
+  },
+  {
+    name: "#253 air at the old price",
+    file: F('base.js'),
+    from: "  const BASE_AIR_PER_10 = 2;",
+    to:   "  const BASE_AIR_PER_10 = 1;",
+  },
+  {
+    name: "#253 every length open",
+    file: F('base.js'),
+    from: "  if (m && SECTOR_GATE.on && (m.sectors ?? 1) > sectorsCleared() + 1) {",
+    to:   "  if (false) {",
+  },
+  {
+    name: "#253 the length won is not written down",
+    file: F('save.js'),
+    from: "      _data.stats.bestSectors = Math.max(_data.stats.bestSectors ?? 0, len);",
+    to:   "",
+  },
+  {
+    name: "#253 a locked job can be taken",
+    file: F('basescreen.js'),
+    from: "      const locked = !j.taken && gateOn && (j.sector ?? 1) > sectorsCleared() + 1;",
+    to:   "      const locked = false;",
+  },
+  {
+    name: "#253 the yard's Geb keeps her medbay",
+    file: F('ship.js'),
+    from: "    playerStrip: ['medbay', 'autorepair'],     // yours from the yard: two free bays (update253)\n",
+    to:   "",
+  },
+  {
+    name: "#253 no sound as the helmet opens",
+    file: F('crew.js'),
+    from: "      const c0 = this.anim.cues?.[this.anim.frame];",
+    to:   "      const c0 = null;",
+  },
+  {
+    name: "#253 no gas in a surrender",
+    file: F('game.js'),
+    from: "      if (Math.random() < 0.5) offers[0].fuel = Utils.randInt(",
+    to:   "      if (false) offers[0].fuel = Utils.randInt(",
+  },
+  {
+    name: "#253 no score",
+    file: F('crewtalk.js'),
+    from: "    _last.score = score(_last);\n",
+    to:   "",
+  },
+  {
+    name: "#253 the score adds nothing up",
+    file: F('crewtalk.js'),
+    from: "    const total = Math.max(0, parts.reduce((a, [, v]) => a + v, 0));",
+    to:   "    const total = 0;",
+  },
+  {
+    name: "#253 a job for a closed sector is taken",
+    file: F('base.js'),
+    from: "    if (SECTOR_GATE.on && (j.sector ?? 1) > sectorsCleared() + 1)\n      return { ok: false, message: `Sector ${j.sector} is not open yet",
+    to:   "    if (false)\n      return { ok: false, message: `Sector ${j.sector} is not open yet",
   },
   /* ── update252: jj 22.11 — the fighter of mini modules, a pilot aboard, a repair droid; guns aim at fighters ── */
   {

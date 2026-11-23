@@ -34359,7 +34359,7 @@ section('325. The node card (139, plan point 3: "mini animacje / obrazki w panel
   node.wantedId = null;
 
   /* ── THE FOOT: WHAT IT COSTS, AND CAN HE ───────────────── */
-  ok(/CLICK TO JUMP · 1 He2 \(4 in the tank\)/.test(card(node).txt), 'a jump costs one He2, and the card says how much is in the tank (update208)');
+  ok(/CLICK TO JUMP · 10 L He2 \(40 L in the tank\)/.test(card(node).txt), 'a jump costs one He2 (10 L, update253), and the card says how much is in the tank (update208)');
   ok(/tanks are dry/.test(card(node, { fuel: 0 }).txt), 'with the tanks dry it says so');
   m.currentId = node.id;
   ok(/YOU ARE HERE/.test(card(node).txt), 'the node he is on says so');
@@ -40453,7 +40453,7 @@ section('372. Fixes from play (185, jj 31.10): FINISH at 5 hull points, every re
     ok(bs.length === RewardView.MAX_PICS && !bs.some(d => /KARMA/.test(d.t)), `${RewardView.MAX_PICS} at most in the frame (${bs.map(d => d.t)})`);
     ok(bs.every((d, k) => k === 0 || d.y > bs[k - 1].y) && bs.every(d => d.y > 100 && d.y < 260), 'stacked top to bottom inside it');
     const badges = captureText(ctx, () => RewardView.drawAll(ctx, two, { x: 0, y: 0, w: 160, h: 160 })).map(d => d.t);
-    ok(badges.includes('+2 He2') && badges.includes('+25 CC'), 'each with its badge');
+    ok(badges.includes('+20 L He2') && badges.includes('+25 CC'), 'each with its badge (update253: He2 in litres)');
     // the event window uses them
     Save.load(); Save.startRun(); Save.updateRun({ scrap: 50 });
     const sh = new Ship('frigate', true, 80, 120); T.playerShip = sh; T.STATE = 'event';
@@ -42795,7 +42795,7 @@ section('395. After the demo review (208, jj 6.11: "1 a — tylko na starcie raz
   const bs = read('js/basescreen.js'), rd = read('js/renderer.js');
   ok(/const _he2Text = \(S\) => `He2 \$\{S\.he2L\} L/.test(bs) && (bs.match(/_he2Text\(S\)/g) ?? []).length >= 3, 'NEXT CONTRACT, the room bar and FLYING WITH say her He2 tank in litres');
   ok(/fuel: \(typeof Save !== 'undefined' && Save\.getRun\?\.\(\)\?\.fuel != null\) \? Save\.getRun\(\)\.fuel/.test(rd), 'the node card reads the tank (run.fuel), not the bottles in the hold');
-  ok(/CLICK TO JUMP · 1 He2 \(\$\{fuel\} in the tank\)/.test(read('js/nodeview.js')), '…and says "in the tank"');
+  ok(/CLICK TO JUMP · \$\{_L\(1\)\} L He2 \(\$\{_L\(fuel\)\} L in the tank\)/.test(read('js/nodeview.js')), '…and says "in the tank" (in litres, update253)');
 
   /* ── 2. THE HANGAR CHIEF, VETERAN, LAUNCH ── */
   quiet(() => BaseScreen.open());
@@ -46816,6 +46816,205 @@ section('438. jj 22.11 (252): the fighter of mini modules — ENG · O₂ · WPN
     Fighters.drawAir(ctx2, [sh], { aiming: false });
     ok(c2.dash === 0, 'no gun picked: no outlines');
     ok(/Fighters\.drawAir\(ctx, \[_playerShip[\s\S]{0,140}aiming: !!_selectedWeapon/.test(read('js/game.js')), 'the fight tells her painter when a gun is picked');
+  }
+})();
+
+// ============================================================
+section('439. jj 22.11 22:27 (253): the main menu from the base, the helmet in the portrait, the gifts on a NEW GAME, their repair hand who can get there, He2 in litres, no marks over a dead hull\'s men, the bodies of the last boarders, puffs and frost, F5 in a fight, item tips, the man on a reward card, the lift, the base (hangar, captain\'s sidearm, KIT, air, sector gate, jobs, Geb), the helmet\'s sound, gas in a surrender, the score');
+// ============================================================
+(function testUpdate253() {
+  const quiet = (fn) => { const log = console.log, warn = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = log; console.warn = warn; } };
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  const sb = loadEngine();
+  const { Ship, CombatManager, Save, Game, Base, RewardView, RunTally, LootScreen, CargoGrid, CargoItem, CrewMember, MISSIONS } = sb;
+  const T = Game.__test;
+  const G = read('js/game.js'), BS = read('js/basescreen.js');
+
+  // ── 1. THE MAIN MENU FROM THE BASE ──
+  ok(/case 'mainMenu': return 'mainMenu';/.test(BS) && /_town && Input\.isPressed\('Escape'\)\) \{\s*return _act\('mainMenu'\)/.test(BS),
+     'the town has a MAIN MENU button, and ESC in the town goes there');
+  ok(/action === 'mainMenu'\) \{[^}]*STATE = 'menu'/.test(G), '…and the game goes back to the title screen');
+
+  // ── 2. THE HELMET IN THE PORTRAIT ──
+  ok(/PORTRAIT_CROP = 50;/.test(read('js/crewlayers.js')) && /fr\.hy \+ 1, h = PORTRAIT_CROP/.test(read('js/crewlayers.js')),
+     'the portrait takes a little more round his head — the helmet is no longer cut at the top');
+
+  // ── 3. NEW GAME: THE GIFTS ──
+  {
+    quiet(() => { Save.load(); T._newGame(); });
+    const store = JSON.stringify(Base.get().store ?? {});
+    ok(/arm_laser_knife_helium/.test(store) && /arm_plasma_pistol_helium/.test(store) && /arm_laser_rifle_helium/.test(store),
+       'a NEW GAME puts the three helium sidearms on the shelf at once (no F5 needed)');
+  }
+
+  // ── 4. THEIR REPAIR HAND WHO CAN GET THERE ──
+  {
+    const C = read('js/combat.js');
+    ok(/&& !c\.isPrisoner && !c\.isPlayer && reach\(c, x, y\)\);/.test(C), 'only a man who can reach the job is picked for it');
+    ok(/return !!enemy\.elevators\?\.findPath\?\.\(c\.x, c\.y, y\);/.test(C) && /Math\.abs\(from\.y - to\.y\) < 4\) return true/.test(C),
+       '…the same deck, or a lift that runs');
+    ok(/!reach\(c, sys\.cx, sys\.cy\)\) \{\s*c\.task = TASK\.IDLE/.test(C), 'a man sent who can no longer get there lets the job go to another');
+    /* in play: their reactor broken, the lift dark, one man upstairs, one downstairs */
+    Save.load(); Save.startRun();
+    const P = new Ship('scout', true, 80, 120), E = new Ship('enemy_frigate', false, 850, 120);
+    [P, E].forEach(sh => sh._allocateDefaultPower());
+    const crew = sb.makeEnemyCrew(2); crew.forEach(c => E.addCrew(c));
+    const reactor = E.systems.find(s => s.type === 'reactor'), rr = E.getRoomById(reactor.roomId);
+    const other = E.rooms.find(r => Math.abs(r.y - rr.y) > 4 && r.type !== 'empty');
+    const same = E.rooms.find(r => Math.abs(r.y - rr.y) < 4 && r.id !== rr.id);
+    if (other && same) {
+      const [up, down] = crew;
+      up.roomId = other.id; up.x = rr.cx + 5; up.y = other.cy; up.homeRoomId = other.id;
+      down.roomId = same.id; down.x = same.cx; down.y = same.cy; down.homeRoomId = same.id;
+      E.elevators.shafts.forEach(sh => { sh.powered = false; });
+      reactor.damage?.(1) ?? (reactor.damagedLevels = 1);
+      if (!(reactor.damagedLevels > 0)) reactor.damagedLevels = 1;
+      CombatManager.begin(P, E, 'normal');
+      for (let i = 0; i < 40 && !CombatManager.isActive(); i++) quiet(() => CombatManager.update(0.05));
+      quiet(() => { for (let i = 0; i < 3; i++) CombatManager._updateAI?.(0.05); });
+      ok(down.task === sb.TASK.REPAIR && down.taskTarget === reactor.roomId && up.task !== sb.TASK.REPAIR,
+         `the lift dark: the man on the reactor's deck goes to fix it, not the nearer one upstairs (${down.task}/${up.task})`);
+      quiet(() => CombatManager.end());
+    } else ok(true, '(layout without two decks — skipped)');
+  }
+
+  // ── 5. He2 IN LITRES ──
+  ok(RewardView.pick({ fuel: -1 }).badge === '−10 L He2' && RewardView.pick({ fuel: 2 }).badge === '+20 L He2',
+     'an event that burns He2 says −10 L He2, not −1');
+  ok(RewardView.offer('fuel', 3).badge === '+30 L He2', 'a card of He2 in litres');
+  ok(G.includes("case 'fuel': return `Take ${Array.isArray(v) ? `${_he2L(v[0])}–${_he2L(v[1])}` : _he2L(v)} L of He2`;") && /'Sheer off — burn 10 L of He2'/.test(read('js/map.js')),
+     'the choice says litres too');
+  ok(/sub: 'costs 10 L of He2'/.test(read('js/wreck.js')), 'AUTO-DOCK costs 10 L of He2');
+
+  // ── 6. NO MARKS OVER THE MEN OF A DEAD HULL ──
+  {
+    const E = new Ship('enemy_frigate', false, 850, 120), c = sb.makeEnemyCrew(1)[0]; E.addCrew(c);
+    E.hull = 0;
+    const ctx = new Proxy({}, { get: (t, k) => k in t ? t[k] : () => ({ addColorStop() {} }), set: (t, k, v) => { t[k] = v; return true; } });
+    try { E.draw?.(ctx); } catch (e) { /* drawing in the suite is best effort */ }
+    ok(c._hullDown === true, 'a man of a hull that is gone is marked so when drawn');
+    ok(/if \(!this\.dead && !this\._hullDown && typeof Renderer/.test(read('js/crew.js')), '…and nothing is painted over him (low air and the rest)');
+  }
+
+  // ── 7. THE LAST BOARDERS LEAVE BODIES ──
+  {
+    Save.load(); Save.startRun();
+    const P = new Ship('scout', true, 80, 120); sb.makeStartingCrew().forEach(c => P.addCrew(c));
+    const [live, falling, dead] = sb.makeEnemyCrew(3);
+    [live, falling, dead].forEach(c => { c.roomId = P.rooms[0].id; c.x = P.rooms[0].cx; c.y = P.rooms[0].cy; P.addCrew(c, true); });
+    falling.dying = true; dead.dead = true; dead.state = 'dead';
+    T.playerShip = P;
+    quiet(() => T._purgeIntruders());
+    ok(!P.crew.includes(live) && P.crew.includes(falling) && P.crew.includes(dead),
+       'at the end of a fight the standing are thrown out; one still falling stays — he is a body in a moment');
+  }
+
+  // ── 8. PUFFS FROM THE PACK, FROST ON THE DEAD ──
+  ok(/function _packPuff\(m, c, dt, push = null\)/.test(G) && /_packPuff\(m, c, dt\);\n      c\.x = m\.x;/.test(G) && /if \(r\.thrusting\) _packPuff\(m, c, dt, m\._push\);/.test(G),
+     'a man out in the wreckage puffs from his pack — on the autopilot, under his own jets, and holding still at a crate');
+  ok(/function _drawFrost\(ctx, k, t\)/.test(G) && /_drawFrost\(ctx, k, t\);/.test(G), 'a body out there has frost on it');
+
+  // ── 9. F5 IN A FIGHT ──
+  ok(/_markFight\(difficulty, nebula, opts\);/.test(G) && /function _leaveFight\(view = 'ship'\) \{\s*_clearFight\(\);/.test(G),
+     'a fight is written into the run when it starts, and struck off when he leaves it');
+  ok(/\['victory', 'defeat', 'fled', 'enemy_fled'\]\.includes\(CombatManager\.state\)\) _clearFight\(\)/.test(G), '…and when it is won, lost or run from');
+  ok(/const fa = run\.fightAt;\s*if \(fa && fa\.sector === \(run\.sector \?\? 1\) && fa\.node === _sectorMap\.currentId\)[\s\S]{0,200}_startCombat\(fa\.d/.test(G),
+     'a reload with a fight still written down starts it again from the beginning');
+
+  // ── 10. WHAT AN ITEM IS, UNDER THE MOUSE ──
+  {
+    const it = new CargoItem('he2_med');
+    const L = LootScreen.tipLines(it);
+    ok(L[0] === it.label && L.length >= 2, `the tip: its name and what it is (${L.join(' | ')})`);
+    ok(/if \(!_carry\) _drawHoverTip\(ctx\);/.test(read('js/lootscreen.js')), 'drawn when the hand is empty — hovering still selects nothing');
+  }
+
+  // ── 11. THE MAN ON A REWARD CARD ──
+  ok(/const man = keys\.includes\('crew'\) && typeof CrewMember !== 'undefined' \? new CrewMember\(\{\}\) : null;/.test(G)
+     && /result\.crewRec instanceof CrewMember \? result\.crewRec/.test(G) && /_drawOfferMan\(ctx, ch\.result\.crewRec, A\)/.test(G),
+     'a crew member offered on the cards is rolled first, shown (face, name, corporation, skills) and is the one who joins');
+
+  // ── 12. WAITING FOR THE LIFT HE STANDS ──
+  ok(/Waiting at the shaft: summon cabin, board when it arrives[\s\S]{0,200}if \(this\._animState === 'walk'\) this\._setAnim\('idle'\);/.test(read('js/crew.js')),
+     'waiting at the shaft he stands, not walks on the spot');
+
+  // ── 13. THE BASE ──
+  ok(sb.BaseScreen.HANGAR_EXTRAS && /const HANGAR_EXTRAS = \{ on: false \};/.test(BS) && /if \(!HANGAR_EXTRAS\.on\) return;/.test(BS),
+     'the hangar: no building links and no SELL button (off in the game)');
+  {
+    /* the captain's sidearm goes back on the shelf */
+    quiet(() => { Save.load(); T._newGame(); });
+    const b = Base.get();
+    b.messLvl = Math.max(1, b.messLvl ?? 1); Save.addScrapBank(99999);
+    const rec = new CrewMember({ name: 'Vet' }).serialise?.() ?? { id: 'v1', name: 'Vet' };
+    rec.id = rec.id ?? 'v1';
+    b.barracks = [rec];
+    const forceEligible = sb.Commander.eligible; sb.Commander.eligible = () => true;
+    const g0 = CargoGrid.deserialise(b.store);
+    const knife = g0.items.find(i => /^arm_laser_knife/.test(i.defKey));
+    const r0 = knife ? Base.armCrew?.(rec.id, knife.defKey) : null;
+    const armed = !!b.barracks[0]?.sidearm;
+    const before = (JSON.stringify(Base.get().store).match(/arm_laser_knife/g) ?? []).length;
+    const r = quiet(() => Base.promote(rec.id));
+    sb.Commander.eligible = forceEligible;
+    const after = (JSON.stringify(Base.get().store).match(/arm_laser_knife/g) ?? []).length;
+    ok(!armed || (r.ok && after === before + 1 && /back on the shelf/.test(r.message)),
+       `promoted with a knife in his belt, the knife goes back on the shelf (${armed}, ${before}→${after}, ${r?.message})`);
+    void r0;
+  }
+  ok(/'◆ KIT', \{ act: 'cpu', arg: cap\.id/.test(BS) && /'◆ KIT & SKILLS'/.test(BS),
+     'the loadout\'s commander has a KIT button to his tablets and skills; the mess says KIT & SKILLS, not TABLETS');
+  ok(Base.unitPrice('air') === 10 && Base.SHOP_UNIT.air === 50, `50 L of air at the base: ${Base.unitPrice('air')} CC`);
+  {
+    sb.SECTOR_GATE.on = true;
+    const st = Save.getRaw().stats;
+    st.bestSectors = 0; st.victories = 0;
+    ok(sb.missionRefusal(MISSIONS.courier) == null && /finish a 1-sector/.test(sb.missionRefusal(MISSIONS.patrol) ?? '')
+       && /finish a 2-sector/.test(sb.missionRefusal(MISSIONS.mothership) ?? ''), 'a new game: one sector open, two and three locked');
+    st.bestSectors = 1;
+    ok(sb.missionRefusal(MISSIONS.patrol) == null && sb.missionRefusal(MISSIONS.mothership) != null, 'a one-sector contract done: two sectors open, three not yet');
+    st.bestSectors = 2;
+    ok(sb.missionRefusal(MISSIONS.mothership) == null, 'two done: three open');
+    delete st.bestSectors; st.victories = 1;
+    ok(sb.missionRefusal(MISSIONS.patrol) == null, 'a save from before that won a contract counts one sector');
+    Save.startRun(); Save.updateRun({ finalSector: 2 }); st.bestSectors = 1;
+    quiet(() => Save.endRun(true));
+    ok(Save.getRaw().stats.bestSectors === 2, 'a contract won writes its length down');
+    st.bestSectors = 0;
+    const b = Base.get();
+    b.jobs = [{ id: 'jx', kind: 'cargo', client: 'X', sector: 2, crates: 1, pay: 50, fine: 0 }];
+    Save.addScrapBank(1000);
+    const r = Base.takeJob('jx');
+    ok(!r.ok && /Sector 2 is not open yet/.test(r.message) && !b.jobs[0].taken, 'a job for a sector not open yet cannot be taken');
+    sb.SECTOR_GATE.on = false;
+  }
+  ok(/const locked = !j\.taken && gateOn && \(j\.sector \?\? 1\) > sectorsCleared\(\) \+ 1;/.test(BS) && /T\('SECTOR', bx \+ 18/.test(BS),
+     'dispatch: every job has its sector in a badge; one for a sector not yet open is LOCKED, and says why');
+  {
+    const mine = new Ship('enemy_geb', true, 80, 120), theirs = new Ship('enemy_geb', false, 850, 120);
+    const has = (sh, t) => sh.systems.some(s => s.type === t);
+    ok(!has(mine, 'medbay') && !has(mine, 'autorepair') && has(theirs, 'medbay') && has(theirs, 'autorepair'),
+       'a Geb from the yard comes without the medbay and the repair bay; theirs still have them');
+    ok(mine.rooms.filter(r => r.type === 'empty').length >= 2, '…two free bays to fit');
+  }
+
+  // ── 14. THE HELMET'S SOUND ──
+  ok(/const c0 = this\.anim\.cues\?\.\[this\.anim\.frame\];/.test(read('js/crew.js')), 'the open cue on frame 0 plays when the animation starts');
+
+  // ── 15. GAS IN A SURRENDER ──
+  ok(/if \(Math\.random\(\) < 0\.5\) offers\[0\]\.fuel = Utils\.randInt/.test(G) && /offers\[0\]\.air = 10 \* Utils\.randInt/.test(G), 'a surrender sometimes offers He2 and air too');
+
+  // ── 16. THE SCORE ──
+  {
+    const S = RunTally.score({ sector: 2, wins: 5, kills: 12, wrecked: 4, combos: { 'DOUBLE!': 2 }, jobs: [{ state: 'delivered' }],
+                               rescued: 1, prisoners: 1, bounty: 100, banked: 300, crewHome: 4, xp: 200, fallen: ['A'], victory: true });
+    const want = 2 * 300 + 5 * 100 + 12 * 25 + 4 * 15 + 2 * 40 + 150 + 60 + 50 + 100 + 300 + 4 * 30 + 100 - 120 + 500;
+    ok(S.total === want && S.grade === 'B', `the score of the whole contract and its grade (${S.total} ${S.grade})`);
+    ok(RunTally.score({ sector: 1 }).grade === 'D', 'a thin one is a D');
+    ok(/const S = T\.score \?\?/.test(read('js/renderer.js')) && /_last\.score = score\(_last\);/.test(read('js/crewtalk.js')),
+       'the summary shows it under the four cards');
   }
 })();
 

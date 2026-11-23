@@ -1486,7 +1486,7 @@ step('base MESS — the card is a summary and the FILE holds the detail', () => 
        was looking at. What stays is what you scan a berth for. */
     assert(/Rusz/.test(labels), 'the card names him');
     assert(/Corporal/.test(labels), 'and his rank');
-    assert(/\bTABLETS\b/.test(labels) && !/CPU/.test(labels), 'and offers the board, his levels being spent');
+    assert(/KIT & SKILLS/.test(labels) && !/CPU/.test(labels), 'and offers the board, his levels being spent (update253: KIT & SKILLS, not TABLETS)');
     assert(/click a commander: (his|the) file/.test(labels),
       'and says where the rest of it lives (update156: the office\'s title row)');
     assert(!/karma 20/.test(labels),

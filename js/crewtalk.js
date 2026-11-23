@@ -77,9 +77,43 @@ const RunTally = (() => {
       ...JSON.parse(JSON.stringify(t)), jobs, best: best ? { name: best[0], xp: Math.round(best[1]) } : null,
       sector: run?.sector ?? 1, mission: run?.mission ?? null, ...extra,
     };
+    _last.score = score(_last);
     return _last;
   }
-  return { get, noteCombo, noteDeath, noteXP, noteWin, noteWreck, close, last: () => _last, clear: () => { _last = null; } };
+
+  /* THE SCORE FOR THE WHOLE OF IT (update253, jj 22.11: „jak kontrakt complete, po wyprawie powinna być punktacja —
+     gracze lubią tę za całokształt"). Every number the summary already shows, weighed, and a grade. */
+  const SCORE = {
+    sector: 300, win: 100, kill: 25, wreck: 15, combo: 40, job: 150, rescued: 60, prisoner: 50, home: 30,
+    fallen: -120, victory: 500, xp: 0.5,
+    GRADES: [[5000, 'S'], [3500, 'A'], [2200, 'B'], [1200, 'C'], [0, 'D']],
+  };
+  function score(T) {
+    if (!T) return null;
+    const combos = Object.values(T.combos ?? {}).reduce((a, n) => a + n, 0);
+    const delivered = (T.jobs ?? []).filter(j => j.state === 'delivered').length;
+    const fallen = new Set([...(T.fallen ?? []), ...(T.lostWith ?? [])]).size;
+    const parts = [
+      ['sectors', (T.sector ?? 1) * SCORE.sector],
+      ['fights won', (T.wins ?? 0) * SCORE.win],
+      ['kills', (T.kills ?? 0) * SCORE.kill],
+      ['modules wrecked', (T.wrecked ?? 0) * SCORE.wreck],
+      ['combos', combos * SCORE.combo],
+      ['jobs', delivered * SCORE.job],
+      ['rescued', (T.rescued ?? 0) * SCORE.rescued],
+      ['prisoners', (T.prisoners ?? 0) * SCORE.prisoner],
+      ['bounties', Math.round(T.bounty ?? 0)],
+      ['CC banked', Math.round(T.banked ?? 0)],
+      ['came home', (T.crewHome ?? 0) * SCORE.home],
+      ['XP', Math.round((T.xp ?? 0) * SCORE.xp)],
+      ['fallen', fallen * SCORE.fallen],
+      ['contract', T.victory ? SCORE.victory : 0],
+    ].filter(([, v]) => v);
+    const total = Math.max(0, parts.reduce((a, [, v]) => a + v, 0));
+    const grade = SCORE.GRADES.find(([min]) => total >= min)?.[1] ?? 'D';
+    return { total, grade, parts };
+  }
+  return { get, noteCombo, noteDeath, noteXP, noteWin, noteWreck, close, score, SCORE, last: () => _last, clear: () => { _last = null; } };
 })();
 
 const CrewTalk = (() => {

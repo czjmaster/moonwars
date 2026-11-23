@@ -1925,6 +1925,7 @@ const SHIP_LAYOUTS = {
     reactorLevel: 10,
     reactorMax: 14,
     weaponSlots: 1,
+    playerStrip: ['medbay', 'autorepair'],     // yours from the yard: two free bays (update253)
   }),
 
   enemy_tefnut: buildHull({
@@ -2123,6 +2124,10 @@ class Ship {
     // ── Build rooms ──────────────────────────────────────
     this.rooms = this.layout.rooms.map(cfg => new Room({
       ...cfg,
+      /* A HULL BOUGHT AT THE YARD COMES WITHOUT WHAT ITS NAVY FITTED (update253, jj 22.11: „z lotniskowca, którego
+         możemy kupić, zlikwiduj boty naprawcze i leczenie — niech 2 moduły będą wolne do upgrade"): `playerStrip`
+         rooms are empty bays on a ship of ours. */
+      ...(isPlayer && (this.layout.playerStrip ?? []).includes(cfg.type) ? { type: 'empty' } : {}),
       x: worldX + cfg.x,
       y: worldY + cfg.y,
     }));
@@ -8715,8 +8720,11 @@ class Ship {
     const zg = this.zeroG;
     const now = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
     if (zg) this._drawZeroGMotes(ctx, now);
+    const hullDown = this.hull <= 0 || !!this.destroyed;
     this.crew.forEach((c, i) => {
       if (c && c.isPet && c._ductY != null && !c.dead) return;   // drawn in the duct, behind the grille
+      /* her hull gone, her own men went with her: no „low air" over them (update253, jj 22.11) */
+      if (c) c._hullDown = hullDown && !c.isPlayer;
       if (zg && c && !c._ridingShaft && c._ductY == null) {
         ctx.save();
         ctx.translate(0, Ship.floatOffset(now, i, c.down));

@@ -62,7 +62,7 @@ const SHIP_CATALOG = {
   enemy_geb: {
     key: 'enemy_geb', cost: 560,
     label: 'Geb',
-    blurb: 'The Terra carrier: a fighter in her hangar (a man at its console flies her), a repair bay, three decks, one gun.',
+    blurb: 'The Terra carrier: a fighter in her hangar (a man at its console flies her), two free bays to fit, three decks, one gun.',
   },
 };
 
@@ -163,7 +163,21 @@ const MISSIONS = {
  * update61 taught that lesson already, and this is the same rule:
  * what is refused says so, in words, where the player is looking.
  */
+/* ONE LENGTH AT A TIME (update253, jj 22.11: „dopóki nie skończymy 1 sektora, 2 sektor zamknięty, tak samo 3 —
+   dopiero jak zrobimy 1, otwiera się 2, a jak 2 zrobimy, otwiera się 3"): a contract of n sectors waits for a finished
+   contract of n − 1. `Save` keeps the longest finished (`stats.bestSectors`). */
+const SECTOR_GATE = { on: true };
+function sectorsCleared() {
+  try {
+    const st = (typeof Save !== 'undefined' && Save.getRaw?.()?.stats) || {};
+    return st.bestSectors ?? ((st.victories ?? 0) > 0 ? 1 : 0);     // a save from before: a won contract counts as one sector
+  } catch (e) { return 0; }
+}
 function missionRefusal(m, karma = null) {
+  if (m && SECTOR_GATE.on && (m.sectors ?? 1) > sectorsCleared() + 1) {
+    const need = (m.sectors ?? 1) - 1;
+    return `Locked — finish a ${need}-sector contract first.`;
+  }
   if (!m || !m.karmaGate) return null;
   const k = (karma != null) ? karma
     : ((typeof Commander !== 'undefined' && Commander.karmaNow)
@@ -539,13 +553,23 @@ const Base = (() => {
     const price = Commander.priceFor(rec);
     if (cc() < price) return { ok: false, message: `Need ${price} CC.` };
 
+    /* HIS SIDEARM GOES BACK ON THE SHELF (update253, jj 22.11: „jak awansowałem kapitana z bronią, to broń przepadła —
+       niech wraca do inventory"). The chair has no holster: before he takes it, his knife or gun is put away — and if
+       the shelf has no room for it, he is not promoted yet. */
+    let armNote = '';
+    if (rec.sidearm && typeof CrewArms !== 'undefined') {
+      const label = CrewArms.def?.(rec.sidearm)?.label ?? 'sidearm';
+      const r = disarmCrew(crewId);
+      if (!r.ok) return { ok: false, message: `No room on the shelf for his ${label} — make room first.` };
+      armNote = ` His ${label} is back on the shelf.`;
+    }
     spend(price);
     const cap = Commander.fromCrew(rec);
     b.barracks = b.barracks.filter(c => c.id !== crewId);   // out of the bunk, for good
     (b.commanders = b.commanders ?? []).push(cap);
     _commit();
     return { ok: true, commander: cap,
-             message: `${cap.name} takes the chair. The barracks is one hand lighter.` };
+             message: `${cap.name} takes the chair. The barracks is one hand lighter.${armNote}` };
   }
 
   /** Everyone in the barracks who could take the chair today. */
@@ -619,6 +643,8 @@ const Base = (() => {
   /* …AND BOTH BY THE 50 L (update250, jj 21.11: „zwiększ w sklepie ilość powietrza i H2 do 50, po 10 litrów to za
      mało"): one unit of SUPPLY is 50 L — five He2 units (10 L each), fifty litres of air — at five times the price. */
   const SHOP_UNIT = { air: 50, fuel: 5 };
+  /* AIR AT THE BASE: 50 L FOR 10 CC (update253, jj 22.11) — 2 CC the 10 L, on the shelf and into her tank alike */
+  const BASE_AIR_PER_10 = 2;
   const SHOP_LITRES = 50;
 
   /** Put units on the shelf as real containers. Returns how many FIT. */
@@ -644,7 +670,7 @@ const Base = (() => {
 
   function unitPrice(kind) {
     return kind === 'fuel' ? PRICE.fuel * SHOP_UNIT.fuel
-         : kind === 'air' ? (typeof TANKS !== 'undefined' ? TANKS.AIR_PRICE : 1) * (SHOP_UNIT.air / 10)
+         : kind === 'air' ? BASE_AIR_PER_10 * (SHOP_UNIT.air / 10)
          : kind === 'scan' ? PRICE.scan
          : kind === 'food' ? PRICE.food
          : PRICE.missile;
@@ -1249,6 +1275,9 @@ const Base = (() => {
     const b = get(), j = (b.jobs ?? []).find(x => x.id === id);
     if (!j || j.taken) return { ok: false, message: 'No such job on the board.' };
     if (b.jobs.filter(x => x.taken).length >= JOB_MAX) return { ok: false, message: `${JOB_MAX} jobs already — drop one first.` };
+    /* a job deeper than the contracts open to you waits (update253, the sector gate) */
+    if (SECTOR_GATE.on && (j.sector ?? 1) > sectorsCleared() + 1)
+      return { ok: false, message: `Sector ${j.sector} is not open yet — finish a ${(j.sector ?? 1) - 1}-sector contract first.` };
     const dep = depositOf(j);
     if (cc() < dep) return { ok: false, message: `${j.client} wants a ${dep} CC deposit — you have ${cc()} CC.` };
     if (dep > 0) spend(dep);
@@ -1531,7 +1560,7 @@ const Base = (() => {
     const t = shipTanks(shipIndex);
     if (!t) return { units: 0, cost: 0 };
     const units = Math.floor(t[kind].space + 1e-9);
-    return { units, cost: kind === 'he2' ? units * PRICE.fuel : Math.ceil(units / 10 * (typeof TANKS !== 'undefined' ? TANKS.AIR_PRICE : 1)) };
+    return { units, cost: kind === 'he2' ? units * PRICE.fuel : Math.ceil(units / 10 * BASE_AIR_PER_10) };
   }
   /** Fill her tanks: `how` 'pour' (bottles, free), 'he2' or 'air' (the pump).
    *  POUR takes from HER HOLD first, then the warehouse (update204, jj: "załadowałem
@@ -1953,4 +1982,5 @@ if (typeof window !== 'undefined') {
   window.SHIP_CATALOG = SHIP_CATALOG;
   window.MISSIONS = MISSIONS;
   window.missionRefusal = missionRefusal;
+  window.SECTOR_GATE = SECTOR_GATE; window.sectorsCleared = sectorsCleared;
 }

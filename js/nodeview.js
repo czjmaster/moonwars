@@ -22,6 +22,7 @@
 'use strict';
 
 const NodeView = (() => {
+  const _L = (n) => Math.round(n * (typeof TANKS !== 'undefined' ? TANKS.HE2_L : 10));
   const CARD = { w: 276, h: 184, pic: { x: 10, y: 30, w: 256, h: 88 } };
 
   const COL = {
@@ -354,8 +355,9 @@ const NodeView = (() => {
     const fuel = opts.fuel;
     if (here) { foot = 'You are here.'; footCol = COL.faint; }
     else if (node.locked) { foot = 'Out of reach from here.'; footCol = COL.faint; }
-    else if (fuel != null && fuel <= 0) { foot = 'JUMP · 1 He2 — the tanks are dry'; footCol = COL.bad; }
-    else { foot = fuel != null ? `CLICK TO JUMP · 1 He2 (${fuel} in the tank)` : 'CLICK TO JUMP · 1 He2'; footCol = fuel != null && fuel <= 2 ? COL.warn : COL.good; }
+    /* in litres (update253): a jump is one unit, HE2_L of them */
+    else if (fuel != null && fuel <= 0) { foot = `JUMP · ${_L(1)} L He2 — the tanks are dry`; footCol = COL.bad; }
+    else { foot = fuel != null ? `CLICK TO JUMP · ${_L(1)} L He2 (${_L(fuel)} L in the tank)` : `CLICK TO JUMP · ${_L(1)} L He2`; footCol = fuel != null && fuel <= 2 ? COL.warn : COL.good; }
     ctx.fillStyle = COL.line; ctx.fillRect(R.x + 10, R.y + R.h - 22, R.w - 20, 1);
     ctx.fillStyle = footCol; ctx.font = '10px Share Tech Mono, monospace';
     ctx.fillText(foot, R.x + 10, R.y + R.h - 9);

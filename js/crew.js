@@ -1290,9 +1290,19 @@ class CrewMember {
 
     if (this._pathRetryCd > 0) this._pathRetryCd -= dt;
     const _f0 = this.anim.frame;
+    /* (update253) a new animation: its frame-0 cue, before the clock moves it on */
+    const freshAnim = this._cueAnim !== this.anim;
+    if (freshAnim) {
+      this._cueAnim = this.anim;
+      const c0 = this.anim.cues?.[this.anim.frame];
+      if (c0 && this.isPlayer && typeof Audio !== 'undefined') Audio.sfx?.[c0]?.();
+    }
     this.anim.update(dt);
     /* THE SHIELD'S SOUND (update246, jj): a layered man's eating animation folds his hologram shield away and back;
        the frames that start each move carry a cue. Only our own people are heard. */
+    /* …AND THE FIRST ONE TOO (update253, jj 22.11: „brakuje dźwięku otwierania hełmu"): the open cue sits on frame 0,
+       the frame an animation STARTS on, so „the frame changed" never fired for it. A new animation plays its frame-0 cue
+       once. */
     if (this.anim.cues && this.anim.frame !== _f0 && this.isPlayer) {
       const cue = this.anim.cues[this.anim.frame];
       if (cue && typeof Audio !== 'undefined') Audio.sfx?.[cue]?.();
@@ -1634,6 +1644,8 @@ class CrewMember {
       }
 
       // Waiting at the shaft: summon cabin, board when it arrives
+      /* …STANDING THERE (update253, jj 22.11: „załoga, jak czeka na windę, macha nogami, jakby chodziła — ma stać") */
+      if (this._animState === 'walk') this._setAnim('idle');
       if (shaft.cabinAt(wp.srcY, 14)) {
         shaft.board(this, wp.dstFloor);
       } else if (!shaft._moving && !shaft.passenger) {
@@ -2545,7 +2557,7 @@ class CrewMember {
      * does not need and the roster already carries; which marks those
      * are is `DECK_MARKS`, one list, right here.
      */
-    if (!this.dead && typeof Renderer !== 'undefined'
+    if (!this.dead && !this._hullDown && typeof Renderer !== 'undefined'
         && typeof Renderer.crewMarks === 'function') {
       const marks = Renderer.crewMarks(this, null)
         .filter(m => CrewMember.DECK_MARKS.includes(m.key));

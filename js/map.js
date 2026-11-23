@@ -151,7 +151,7 @@ const EVENTS = [
         + 'and lose the fuel.',
     choices: [
       { label: 'Ride it out',            result: { risk: 'crew_damage', scrap: [0, 8] } },
-      { label: 'Sheer off — burn 1 He2', result: { fuel: -1 } },
+      { label: 'Sheer off — burn 10 L of He2', result: { fuel: -1 } },
     ],
   },
   {

@@ -269,7 +269,7 @@ const CrewLayers = (() => {
   /* ── HIS PORTRAIT (update250) ── his head and shoulders from the layers, facing us, the shield up (down when
      `bare` — an inmate, a man off duty), on the dark of a crew card; `size` px square, kept. */
   const _portraits = new Map();
-  const PORTRAIT_CROP = 46;          // px of the frame round his head and shoulders (the frame is 120 × 102)
+  const PORTRAIT_CROP = 50;          // px of the frame round his head and shoulders (the frame is 120 × 102); 46 → 50 (update253: the helmet was cut at the top)
   function portrait(seed, race, colour, bare = false, size = 96) {
     if (!ready()) return null;
     const key = `${seed}|${race ?? ''}|${colour}|${bare ? 1 : 0}|${size}`;
@@ -278,7 +278,7 @@ const CrewLayers = (() => {
     const f = paintFrame(t, colour, 'front', 0, bare ? 1 : 0, bare, 0);
     const c = canvas(size, size), g = c.getContext('2d');
     if (!bare) { g.fillStyle = 'rgb(14,22,38)'; g.fillRect(0, 0, size, size); }
-    const cx = BODY_X + fr.hx, cy = BODY_Y + fr.hy + 3, h = PORTRAIT_CROP;
+    const cx = BODY_X + fr.hx, cy = BODY_Y + fr.hy + 1, h = PORTRAIT_CROP;
     g.imageSmoothingEnabled = true;
     g.drawImage(f, cx - h / 2, cy - h / 2, h, h, 0, 0, size, size);
     if (_portraits.size > 300) _portraits.clear();

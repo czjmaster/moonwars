@@ -93,7 +93,20 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
    * negatywny". Every way out of a fight lands in the map state (that
    * is where jumping lives) but with the SHIP in view; [M] / SHOW MAP
    * brings the chart up when he is ready. */
+  /** The fight in progress, written into the run (update253) — and struck off. */
+  function _markFight(difficulty, nebula, opts = {}) {
+    try {
+      const run = Save.getRun?.();
+      if (!run || !_sectorMap) return;
+      Save.updateRun({ fightAt: { sector: run.sector ?? 1, node: _sectorMap.currentId, d: difficulty, n: !!nebula,
+                                  o: { patrol: !!opts.patrol, asteroids: !!opts.asteroids } } });
+    } catch (e) { /* bookkeeping never stops a fight */ }
+  }
+  function _clearFight() {
+    try { if (Save.getRun?.()?.fightAt) Save.updateRun({ fightAt: null }); } catch (e) { /* */ }
+  }
   function _leaveFight(view = 'ship') {
+    _clearFight();
     STATE = 'map';
     _mapView = view;
     _jumpPrompt = view === 'map';
@@ -889,6 +902,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        a different record (or none) — so it is rebuilt by itself. A second
        way of saying "build it again" would be a second register. */
     _playerShip = null; _enemyShip = null;
+    /* THE START-OF-GAME GIFTS FOR THE NEW SAVE TOO (update253, jj 22.11: „jak daję restart, to nie pojawiają się
+       bronie na początku, dopiero jak dam F5") — they were given at boot only, so a NEW GAME had none until a reload */
+    try { Base.giveHeliumGift?.(); } catch (e) { console.warn('[Game] helium gift:', e); }
+    try { Base.giveRecordGift?.(); } catch (e) { console.warn('[Game] record gift:', e); }
     UI.notify?.('A new game. The base is yours to build.', 'info');
   }
   function _drawMenuConfirm(ctx) {
@@ -3221,6 +3238,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         }
         m._bumpT = Math.max(0, (m._bumpT ?? 0) - dt);
         if (Math.abs(m.vx) > 1) c._facing = m.vx > 0 ? 1 : -1;
+        if (r.thrusting) _packPuff(m, c, dt, m._push);
         const slow = Eva.speed(m) <= EVA.GRAB_SPEED;
         // a crate or a body in reach, and slow enough: he takes hold and starts on it
         const k = slow && CombatManager.salvage.crates.find(q => q.state !== 'taken' && (!q.by || q.by === c)
@@ -3265,6 +3283,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
           continue;
         }
       }
+      _packPuff(m, c, dt);
       c.x = m.x; c.y = m.y + Math.sin(m.t * 3) * 2;
     }
     CombatManager.salvage.men = CombatManager.salvage.men.filter(m => !['gone', 'lost', 'aboard'].includes(m.phase));
@@ -3330,6 +3349,44 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
             + 'RECALL them before the jump, or they are left behind.', 'alert');
   }
 
+  /* LITTLE PUFFS FROM HIS PACK (update253, jj 22.11: „dodać małe odrzutki z plecaka, jak załogant lutuje ciała i
+     skrzynki po walce"): on the autopilot a puff now and then out of the back of his pack, away from where he goes;
+     at a crate or a body, the small puffs that hold him in place while he cuts. Particles only. */
+  function _packPuff(m, c, dt, push = null) {
+    if (typeof Particles === 'undefined' || !Particles.emit) return;
+    const moving = m.phase === 'fly' || m.phase === 'home' || (m.phase === 'jet' && push);
+    const holding = m.phase === 'cut';
+    if (!moving && !holding) return;
+    m._puffT = (m._puffT ?? 0) - dt;
+    if (m._puffT > 0) return;
+    m._puffT = moving ? 0.12 + Math.random() * 0.1 : 0.35 + Math.random() * 0.4;
+    const face = c._facing ?? 1;
+    let dx = -face, dy = 0.15;
+    if (push && (push.x || push.y)) { const l = Math.hypot(push.x, push.y); dx = -push.x / l; dy = -push.y / l; }
+    if (holding) { const a = Math.random() * Math.PI * 2; dx = Math.cos(a); dy = Math.sin(a); }
+    const px = m.x - face * 5, py = m.y - 14;
+    Particles.emit({ x: px + dx * 4, y: py + dy * 4, vx: dx * (holding ? 22 : 36) + Utils.randFloat(-6, 6), vy: dy * (holding ? 22 : 36) + Utils.randFloat(-6, 6),
+                     ay: 0, color: holding ? '#d8e6f4' : '#bfe6ff', size: holding ? 1.6 : 2.2, sizeEnd: 0.4,
+                     life: holding ? 0.4 : 0.5, alpha: 0.75, alphaEnd: 0 });
+  }
+
+  /* FROST ON THE DEAD OUT THERE (update253, jj 22.11: „dodaj troszkę mrozu — zamrożone ciała w kosmosie"): a pale
+     rime over the body and a few glints of ice that catch the light as he turns. In the body's own frame (rotated). */
+  function _drawFrost(ctx, k, t) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(200,230,255,0.22)';
+    ctx.beginPath(); ctx.ellipse(0, -2, 9, 14, 0, 0, Math.PI * 2); ctx.fill();
+    let h = (Math.floor((k.phase ?? 0) * 1000) >>> 0) || 7;
+    const r = () => { h = (Math.imul(h, 1103515245) + 12345) >>> 0; return (h >>> 8) / 16777216; };
+    for (let i = 0; i < 7; i++) {
+      const x = (r() - 0.5) * 16, y = (r() - 0.5) * 26 - 2, tw = 0.35 + 0.65 * Math.max(0, Math.sin(t * 2.2 + i * 1.7 + (k.phase ?? 0)));
+      ctx.fillStyle = `rgba(235,248,255,${0.5 * tw + 0.2})`;
+      ctx.fillRect(x - 0.5, y - 0.5, 1.2, 1.2);
+      if (tw > 0.85) { ctx.fillRect(x - 2, y - 0.25, 4, 0.5); ctx.fillRect(x - 0.25, y - 2, 0.5, 4); }
+    }
+    ctx.restore();
+  }
+
   function _drawSalvage(ctx) {
     if (!CombatManager.salvage) return;
     const t = (_prevTime ?? 0) / 1000;
@@ -3351,6 +3408,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         w.x = 0; w.y = 10; w._noHpBar = true;          // a body: no health boxes over him (update208)
         try { w.draw(ctx); } catch (e) { /* a picture only */ }
         w.x = ox; w.y = oy; w._noHpBar = nb; void od;
+        _drawFrost(ctx, k, t);
         if (hot) { ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2); ctx.stroke(); }
       } else {
         // a big cargo crate (update187: was 22×16): ribs, a stencil, hazard stripes
@@ -3528,10 +3586,13 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        znikających ciał przeciwników"). Only the living are thrown out; a
        body is ours to vent, bag or search — and it rots if left. The save
        and the dock already take only our own (`isPlayer`). */
-    const intruders = _playerShip.crew.filter(c => !c.isPlayer && !c.dead);
+    /* …AND A MAN STILL FALLING IS A BODY IN A MOMENT (update253, jj 22.11: „ciał znów przeciwnik po abordażu nie
+       zostawił"): the last boarder killed ends the fight while his fall is still playing — he was thrown out with the
+       living and left no body. Only the standing go out of the airlock. */
+    const intruders = _playerShip.crew.filter(c => !c.isPlayer && !c.dead && !c.dying);
     if (!intruders.length) return;
-    const alive = intruders.filter(c => !c.dying).length;
-    _playerShip.crew = _playerShip.crew.filter(c => c.isPlayer || c.dead);
+    const alive = intruders.length;
+    _playerShip.crew = _playerShip.crew.filter(c => !intruders.includes(c));
     intruders.forEach(c => {
       if (c.carriedBy) c.carriedBy.carrying = null;
       if (c.carrying)  c.carrying.carriedBy = null;
@@ -4186,6 +4247,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     // The order clocks run on combat time, like everything else here.
     Commander?.tickOrders?.(dt);
     Chips?.tick?.(dt);              // …and the tablets in use (update99)
+    if (CombatManager.enemyDown || ['victory', 'defeat', 'fled', 'enemy_fled'].includes(CombatManager.state)) _clearFight();   // update253
     if (!_playerShip || !_enemyShip) return;
     _playerShip.update(dt);
     _enemyShip.update(dt);
@@ -4409,9 +4471,14 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       const gun = _enemyShip.weapons.find(w => w);
       if (gun && Math.random() < 0.5)            offers[0].weaponReward = gun.defKey;
       else if (_playerShip.crew.length < 8 && Math.random() < 0.5) offers[0].crew = 1;
-      const extras = offers[0].weaponReward ? `, their ${gun.label}`
+      /* …AND NOW AND THEN SOME OF WHAT THEY BREATHE AND BURN (update253, jj 22.11: „jak przeciwnik się poddaje, to
+         oferuje nieraz H2 i O2 również") */
+      if (Math.random() < 0.5) offers[0].fuel = Utils.randInt(2, 3 + Math.min(2, run?.sector ?? 1));
+      if (Math.random() < 0.5) offers[0].air = 10 * Utils.randInt(6, 15);
+      const gas = [offers[0].fuel ? `${_he2L(offers[0].fuel)} L of He2` : null, offers[0].air ? `${offers[0].air} L of air` : null].filter(Boolean);
+      const extras = (offers[0].weaponReward ? `, their ${gun.label}`
                    : offers[0].crew         ? ', and a crew member defects to you'
-                   : '';
+                   : '') + (gas.length ? `, ${gas.join(' and ')}` : '');
       _event = {
         title: 'They Surrender!',
         speaker: _foeSpeaker('ENEMY VESSEL'),
@@ -5389,6 +5456,26 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     return { title: { x: W / 2, y: y0 - 46 },
              cards: Array.from({ length: n }, (_, i) => ({ x: x0 + i * (C.w + C.gap), y: y0, w: C.w, h: C.h })) };
   }
+  /** The man on a reward card (update253): his face, name, corporation and best skills. */
+  function _drawOfferMan(ctx, rec, A) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(8,12,22,0.9)'; ctx.beginPath(); ctx.roundRect(A.x, A.y, A.w, A.h, 6); ctx.fill();
+    const s = 96, px = A.x + (A.w - s) / 2, py = A.y + 8;
+    try { Renderer.drawCrewPortrait(ctx, rec, px, py, s); } catch (e) { /* a picture only */ }
+    ctx.textAlign = 'center';
+    ctx.fillStyle = (typeof crewColor === 'function') ? crewColor(rec) : '#4db8ff';
+    ctx.font = '13px Orbitron, monospace';
+    ctx.fillText(String(rec.name ?? '').toUpperCase().slice(0, 16), A.x + A.w / 2, py + s + 18);
+    ctx.fillStyle = '#7a90a8'; ctx.font = '10px Share Tech Mono, monospace';
+    const corp = (typeof CORP_DEFS !== 'undefined' && CORP_DEFS[rec.race]?.label) || rec.race || '';
+    ctx.fillText(`${String(corp).toUpperCase()}  ·  ${Math.round(rec.maxHp ?? 100)} HP`, A.x + A.w / 2, py + s + 32);
+    const sk = Object.keys(rec.skills ?? {}).map(k => [k, rec.getSkillLevel?.(k) ?? 0]).filter(([, l]) => l > 0)
+      .sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, l]) => `${k} ${l}`).join('  ·  ');
+    ctx.fillStyle = '#c8d8f0';
+    ctx.fillText(sk || 'green — no skills yet', A.x + A.w / 2, py + s + 46);
+    ctx.restore();
+  }
+
   function _drawRewardPick(ctx) {
     const R = _rewardPickRects(), t = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
     ctx.save();
@@ -5408,7 +5495,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       ctx.strokeStyle = hot ? '#ffd060' : '#4a6080'; ctx.lineWidth = hot ? 2.5 : 1.5;
       ctx.beginPath(); ctx.roundRect(c.x, c.y - (hot ? 6 : 0), c.w, c.h, 8); ctx.stroke();
       const A = { x: c.x + 5, y: c.y + 5 - (hot ? 6 : 0), w: c.w - 10, h: REWARD_CARD.art };
-      if (typeof RewardView !== 'undefined' && RewardView.offer) RewardView.draw(ctx, RewardView.offer(k, ch?.result?.[k]), A, t + i * 0.37);
+      if (k === 'crew' && ch?.result?.crewRec) _drawOfferMan(ctx, ch.result.crewRec, A);
+      else if (typeof RewardView !== 'undefined' && RewardView.offer) RewardView.draw(ctx, RewardView.offer(k, ch?.result?.[k]), A, t + i * 0.37);
       ctx.textAlign = 'center';
       ctx.fillStyle = hot ? '#ffe9a0' : '#c8d8f0'; ctx.font = '12px Share Tech Mono, monospace';
       const words = String(ch?.label ?? '').replace(/^Take /, '').split(' ');
@@ -6141,12 +6229,14 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const plus = v => Array.isArray(v) ? (v[0] >= 0 && v[1] > 0) : typeof v === 'number' ? v > 0 : !!v;
     return EVENT_REWARDS.filter(k => result[k] != null && plus(result[k]));
   }
+  /** He2 units to litres, for what the player reads (update253) */
+  function _he2L(n) { return Math.round((n ?? 0) * (typeof TANKS !== 'undefined' ? TANKS.HE2_L : 10)); }
   function _rewardLabel(k, v) {
     const n = Array.isArray(v) ? `${v[0]}–${v[1]}` : v;
     switch (k) {
       case 'scrap': return `Take ${n} CC`;
       case 'missiles': return `Take ${n} missile${n === 1 ? '' : 's'}`;
-      case 'fuel': return `Take ${n} L of He2`;
+      case 'fuel': return `Take ${Array.isArray(v) ? `${_he2L(v[0])}–${_he2L(v[1])}` : _he2L(v)} L of He2`;
       case 'air': return `Take ${n} L of air`;
       case 'tankFuel': return 'Take the He2 tank';
       case 'tankAir': return 'Take the air tank';
@@ -6160,8 +6250,12 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   function _pickOneEvent(ev, choice, keys) {
     const base = { ...choice.result };
     keys.forEach(k => delete base[k]);
+    /* THE MAN ON OFFER, MET BEFORE HE IS TAKEN (update253, jj 22.11: „jak wybieramy CC lub załoganta, to powinniśmy
+       widzieć, jaki to załogant i jego info"): rolled now, shown on his card, and the one who comes aboard. */
+    const man = keys.includes('crew') && typeof CrewMember !== 'undefined' ? new CrewMember({}) : null;
     return { ...ev, text: 'You can only take ONE of them — pick:', pickOne: true, pickKeys: keys.slice(),
-             choices: keys.map(k => ({ label: _rewardLabel(k, choice.result[k]), result: { ...base, [k]: choice.result[k], oneOf: true, fromCards: true } })) };
+             choices: keys.map(k => ({ label: k === 'crew' && man ? `Take ${man.name} — a new crew member` : _rewardLabel(k, choice.result[k]),
+                                       result: { ...base, [k]: choice.result[k], ...(k === 'crew' && man ? { crewRec: man } : {}), oneOf: true, fromCards: true } })) };
   }
 
   function _resolveEvent(idx) {
@@ -6324,7 +6418,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         ? Utils.randIn(result.fuel[0], result.fuel[1]) : result.fuel;
       if (amt < 0) {
         const burned = _burnFuel(-amt);
-        UI.notify(`−${burned} He2`, 'warn');
+        UI.notify(`−${_he2L(burned)} L of He2`, 'warn');
       } else {
         const r = _addFuel(amt);
         UI.notify(_fuelGainMessage(r), r.spilled ? 'warn' : 'good');
@@ -6333,7 +6427,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     /* THE TRADER PUMPS IT IN (update191): a beacon's He2 goes into the tank. */
     if (result.tankFuel) {
       const r = _tankFuel(result.tankFuel);
-      UI.notify(`+${r.loaded} He2 pumped into the tank` + (r.spilled ? ` — ${r.spilled} would not fit` : ''), 'good');
+      UI.notify(`+${_he2L(r.loaded)} L of He2 pumped into the tank` + (r.spilled ? ` — ${_he2L(r.spilled)} L would not fit` : ''), 'good');
     }
     /* …and the air, into the AIR tank (update208: the beacon tops up what is short) */
     if (result.tankAir && _playerShip && typeof Tanks !== 'undefined') {
@@ -6354,7 +6448,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         : `+${r.loaded} missiles`, r.spilled ? 'warn' : 'good');
     }
     if (result.crew && _playerShip && _playerShip.crew.length < 8) {
-      const c = new CrewMember({});
+      const c = result.crewRec instanceof CrewMember ? result.crewRec : new CrewMember({});   // the man on his card (update253)
       _playerShip.addCrew(c);
       UI.notify(`${c.name} joined!`, 'good');
     }
@@ -6528,7 +6622,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       const gain = gun ? 5 : 2;
       const r = _tankFuel(gain);          // they pump it straight into the tank (update191)
       UI.notify((gun ? `Traded a spare weapon for ` : `They took pity: +`)
-              + `${r.loaded} He2 into the tank` + (r.spilled ? ` — ${r.spilled} would not fit` : ''),
+              + `${_he2L(r.loaded)} L of He2 into the tank` + (r.spilled ? ` — ${_he2L(r.spilled)} L would not fit` : ''),
               r.spilled ? 'warn' : 'good');
       STATE = 'map';
       return;
@@ -6552,8 +6646,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       if (result.begAir && typeof Tanks !== 'undefined' && _playerShip) Tanks.add(_playerShip, 'air', result.begAir);
       Save.updateRun({ scrap: Math.max(0, run.scrap - toll) });
       UI.notify(toll > 0
-        ? `They spare ${r.loaded} He2 — and help themselves to ${toll} CC`
-        : `They spare ${r.loaded} He2. Barely enough.`, toll > 0 ? 'warn' : 'good');
+        ? `They spare ${_he2L(r.loaded)} L of He2 — and help themselves to ${toll} CC`
+        : `They spare ${_he2L(r.loaded)} L of He2. Barely enough.`, toll > 0 ? 'warn' : 'good');
       STATE = 'map';
       return;
     }
@@ -6958,8 +7052,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   /** One line for "+n He2, m left behind". Used by every fuel payout. */
   function _fuelGainMessage(r) {
     return r.spilled
-      ? `+${r.loaded} He2 — ${r.spilled} left behind, no room in the hold`
-      : `+${r.loaded} He2 (${r.loaded * (typeof TANKS !== 'undefined' ? TANKS.HE2_L : 10)} L) into the hold — a port pours it into the tank, free`;
+      ? `+${_he2L(r.loaded)} L of He2 — ${_he2L(r.spilled)} L left behind, no room in the hold`
+      : `+${_he2L(r.loaded)} L of He2 into the hold — a port pours it into the tank, free`;
   }
 
   /**
@@ -7760,6 +7854,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     /* THE CONTRACT STILL IN THE AIR (update57) — resumed from the base,
        which is the only screen that can tell you what is riding on it. */
     if (action === 'continue') _continueRun();
+    if (action === 'mainMenu') { Audio.sfx.uiClick?.(); STATE = 'menu'; _beginFade(); Audio.stopMusic?.(); return; }
     if (action === 'pack') _openPackScreen();
     if (action === 'cpu')  _openCpuBoard(BaseScreen.consumeCpu());
     if (action === 'levelUp') {
@@ -8416,7 +8511,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (rep.rescued)      bits.push(`${rep.rescued} rescued`);
     if (rep.shipStored)   bits.push('hull docked');
     if (rep.crewStored)   bits.push(`${rep.crewStored} crew home`);
-    if (rep.fuelStored)   bits.push(`${rep.fuelStored} He2 stored`);
+    if (rep.fuelStored)   bits.push(`${_he2L(rep.fuelStored)} L of He2 stored`);
     if (rep.mslStored)    bits.push(`${rep.mslStored} missiles stored`);
     if (rep.cc)           bits.push(`${rep.cc} CC banked`);
     if (rep.prisoners)    bits.push(`${rep.prisoners} prisoner${rep.prisoners > 1 ? 's' : ''} handed over`);
@@ -8430,7 +8525,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     UI.notify(bits.length ? bits.join(' · ') : 'Docked.', 'good');
 
     const lost = [];
-    if (rep.fuelLost)       lost.push(`${rep.fuelLost} He2`);
+    if (rep.fuelLost)       lost.push(`${_he2L(rep.fuelLost)} L of He2`);
     if (rep.mslLost)        lost.push(`${rep.mslLost} missiles`);
     if (rep.crewTurnedAway) lost.push(`${rep.crewTurnedAway} crew turned away`);
     if (!rep.shipStored && _playerShip) lost.push('no berth for the hull!');
@@ -8509,6 +8604,12 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     }
     STATE = 'map';
     Audio.playMusic('explore');
+    /* THE FIGHT HE RELOADED OUT OF, FROM THE START (update253) */
+    const fa = run.fightAt;
+    if (fa && fa.sector === (run.sector ?? 1) && fa.node === _sectorMap.currentId) {
+      UI.notify('The fight you left is waiting — it starts again.', 'warn');
+      _startCombat(fa.d ?? 'normal', !!fa.n, { ...(fa.o ?? {}) });
+    } else if (fa) _clearFight();
   }
 
   /** How often a fight from sector 2 on is a bunker or a mech (update94). */
@@ -9011,6 +9112,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
   /** Start combat vs a fresh enemy. In a nebula BOTH ships run at −2 power. */
   function _startCombat(difficulty, nebula = false, opts = {}) {
+    /* F5 IN A FIGHT IS NOT A WAY PAST IT (update253, jj 22.11: „jak daję F5 podczas walki, to jest zrobione tak, jakby
+       ten punkt [był zaliczony] — przy F5 powinno dać walkę od początku"). The node is marked on arrival and the ship
+       saved before the fight; the fight itself is written down here and struck off when it ends. A reload with it
+       still written down starts it again, from the beginning (`_continueRun`). */
+    _markFight(difficulty, nebula, opts);
     /* A NEW FIGHT GIVES THE ORDERS BACK (update53). Once per fight is
        the rule, so "the fight" has to be a real boundary — and it is
        this line, the one place every gun duel begins. */
@@ -9512,7 +9618,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const price   = 25 + sector * 15 + (airDry ? 20 + sector * 10 : airLow ? 5 : 0);
     const canPay  = run.scrap >= price;
     const cargo   = (_playerShip?.boxedGuns().length ?? 0) > 0;
-    const what    = airFill ? `4 He2 and ${airFill} L of air` : '4 He2';
+    const what    = airFill ? `${_he2L(4)} L of He2 and ${airFill} L of air` : `${_he2L(4)} L of He2`;
 
     const choices = [];
     choices.push({
@@ -9522,7 +9628,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     });
     if (cargo) {
       choices.push({
-        label: 'Trade a spare weapon from cargo for 5 He2',
+        label: 'Trade a spare weapon from cargo for 50 L of He2',
         result: { sosTradeWeapon: true },
       });
     }

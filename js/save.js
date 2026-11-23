@@ -541,6 +541,9 @@ const Save = (() => {
     if (!_data.run) return;
     if (victory) {
       _data.stats.victories++;
+      /* THE LONGEST CONTRACT FINISHED (update253): what opens the next length (base.js `missionRefusal`) */
+      const len = _data.run.finalSector ?? _data.run.sector ?? 1;
+      _data.stats.bestSectors = Math.max(_data.stats.bestSectors ?? 0, len);
     } else {
       _data.stats.deaths++;
     }

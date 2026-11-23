@@ -193,7 +193,7 @@ const DockingGame = (() => {
       ctx.fillText(txt, 640, BAR_Y + 70);
     } else {
       _btn(ctx, 640 - 250, BAR_Y + 60, 150, 34, 'AUTO-DOCK',
-           { act: 'auto', col: '#ffb020', sub: 'costs 1 He2' });
+           { act: 'auto', col: '#ffb020', sub: 'costs 10 L of He2' });
       _btn(ctx, 640 - 75, BAR_Y + 60, 150, 34, 'LOCK CLAMPS',
            { act: 'lock', col: '#1aff8c' });
       _btn(ctx, 640 + 100, BAR_Y + 60, 150, 34, 'BREAK OFF',

@@ -29,6 +29,8 @@
 'use strict';
 
 const RewardView = (() => {
+  /* He2 in LITRES everywhere (update253, jj 22.11: H2 in an event read -1; everything else is litres) */
+  const _L = (n) => Math.round(n * (typeof TANKS !== 'undefined' ? TANKS.HE2_L : 10));
   /** Which picture, from what changed. `d` is the diff:
    *  { cc, fuel, missiles, newCrew: [rec], newPets: [rec], levelsUp: [sys],
    *    burned: [sys], hpLost, karma } */
@@ -39,11 +41,11 @@ const RewardView = (() => {
     if (d.levelsUp?.length) return { kind: 'upgrade', sys: d.levelsUp[0], badge: `LEVEL ${d.levelsUp[0].level}` };
     if ((d.hpLost ?? 0) >= 1) return { kind: 'hurt', badge: `−${Math.round(d.hpLost)} HP` };
     if (d.burned?.length) return { kind: 'burnout', sys: d.burned[0], badge: 'BURNED OUT' };
-    if ((d.fuel ?? 0) > 0) return { kind: 'fuel', badge: `+${d.fuel} He2` };
+    if ((d.fuel ?? 0) > 0) return { kind: 'fuel', badge: `+${_L(d.fuel)} L He2` };
     if ((d.air ?? 0) > 0) return { kind: 'air', badge: `+${d.air} L AIR` };
     if ((d.missiles ?? 0) > 0) return { kind: 'missiles', badge: `+${d.missiles} MSL` };
     if ((d.cc ?? 0) > 0) return { kind: 'cc', badge: `+${d.cc} CC` };
-    if ((d.fuel ?? 0) < 0) return { kind: 'fuelBurn', badge: `${d.fuel} He2` };
+    if ((d.fuel ?? 0) < 0) return { kind: 'fuelBurn', badge: `−${_L(-d.fuel)} L He2` };
     if ((d.air ?? 0) < 0) return { kind: 'airLost', badge: `${d.air} L AIR` };
     if ((d.cc ?? 0) < 0) return { kind: 'paid', badge: `${d.cc} CC` };
     if ((d.karma ?? 0) > 0) return { kind: 'karmaUp', badge: `+${d.karma} KARMA` };
@@ -64,11 +66,11 @@ const RewardView = (() => {
     if (d.levelsUp?.length) add({ kind: 'upgrade', sys: d.levelsUp[0], badge: `LEVEL ${d.levelsUp[0].level}` });
     if ((d.hpLost ?? 0) >= 1) add({ kind: 'hurt', badge: `−${Math.round(d.hpLost)} HP` });
     if (d.burned?.length) add({ kind: 'burnout', sys: d.burned[0], badge: 'BURNED OUT' });
-    if ((d.fuel ?? 0) > 0) add({ kind: 'fuel', badge: `+${d.fuel} He2` });
+    if ((d.fuel ?? 0) > 0) add({ kind: 'fuel', badge: `+${_L(d.fuel)} L He2` });
     if ((d.air ?? 0) > 0) add({ kind: 'air', badge: `+${d.air} L AIR` });
     if ((d.missiles ?? 0) > 0) add({ kind: 'missiles', badge: `+${d.missiles} MSL` });
     if ((d.cc ?? 0) > 0) add({ kind: 'cc', badge: `+${d.cc} CC` });
-    if ((d.fuel ?? 0) < 0) add({ kind: 'fuelBurn', badge: `${d.fuel} He2` });
+    if ((d.fuel ?? 0) < 0) add({ kind: 'fuelBurn', badge: `−${_L(-d.fuel)} L He2` });
     if ((d.air ?? 0) < 0) add({ kind: 'airLost', badge: `${d.air} L AIR` });
     if ((d.cc ?? 0) < 0) add({ kind: 'paid', badge: `${d.cc} CC` });
     if ((d.karma ?? 0) > 0) add({ kind: 'karmaUp', badge: `+${d.karma} KARMA` });
@@ -325,7 +327,7 @@ const RewardView = (() => {
     switch (k) {
       case 'scrap': return { kind: 'cc', badge: `+${n} CC` };
       case 'missiles': return { kind: 'missiles', badge: `+${n} MSL` };
-      case 'fuel': return { kind: 'fuel', badge: `+${n} He2` };
+      case 'fuel': return { kind: 'fuel', badge: `+${Array.isArray(v) ? `${_L(v[0])}–${_L(v[1])}` : _L(v)} L He2` };
       case 'tankFuel': return { kind: 'fuel', badge: 'He2 TANK' };
       case 'air': return { kind: 'air', badge: `+${n} L AIR` };
       case 'tankAir': return { kind: 'air', badge: 'AIR TANK' };
