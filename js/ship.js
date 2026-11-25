@@ -2996,7 +2996,7 @@ class Ship {
        Two lists, each missing half the patients, and between them the
        medbay could not do the job it is bought for. */
     return this.crew.filter(c =>
-      c && !c.dead && c.roomId === roomId && c.inRoom !== false &&
+      c && !c.dead && !c.isRobot && c.roomId === roomId && c.inRoom !== false &&     // a robot mends at the reactor (update257)
       c.isPlayer === this.isPlayer);
   }
 
@@ -3051,7 +3051,7 @@ class Ship {
   }
 
   _startDecay(c) {
-    if (c.decaying) return;
+    if (c.decaying || c.isRobot) return;                  // a wrecked robot does not rot (update257)
     c.decaying = true;
     if (this.isPlayer && typeof UI !== 'undefined') {
       UI.notify(c.isPlayer === this.isPlayer
@@ -4137,7 +4137,7 @@ class Ship {
       }
       const R = Ship.PLAGUE_VENT_RATES;
       this.crew.forEach(c => {
-        if (c.infected || !c.alive || c.isPet) return;
+        if (c.infected || !c.alive || c.isPet || c.isRobot) return;
         if (c.isPlayer !== this.isPlayer) return;
         const near = rotRooms.has(c.roomId);
         const h = hops.get(c.roomId);

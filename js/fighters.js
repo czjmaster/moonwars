@@ -640,7 +640,7 @@ const Fighters = (() => {
   function life(dt, ship, sys, f) {
     const c = f.pilot;
     f.air = works(f, 'o2') ? Math.min(1, f.air + FIGHTER.AIR_BACK * dt) : Math.max(0, f.air - FIGHTER.AIR_LOSS * dt);
-    if (c && !c.dead && f.air < 0.25 && c.race !== 'pegasus') c.takeDamage?.(FIGHTER.CHOKE * dt, 'suffocation');
+    if (c && !c.dead && f.air < 0.25 && c.race !== 'pegasus' && !c.isRobot) c.takeDamage?.(FIGHTER.CHOKE * dt, 'suffocation');   // a robot pilot breathes nothing (update257)
     if (c && c.dying && !c.dead) { c.hp = 0; c.dying = false; c.dead = true; c.state = 'dead'; }   // nobody to finish his fall in here
     if (c && c.dead) {
       if (typeof UI !== 'undefined') UI.notify?.(ship.isPlayer ? `${c.name} died in the cockpit — our fighter is going down.` : 'Their pilot is dead — their fighter falls!', ship.isPlayer ? 'alert' : 'good');

@@ -459,6 +459,7 @@ const CrewArt = (() => {
   const _portraits = new Map();
   /** His portrait, painted once at 48 and kept. */
   function portraitCanvas(rec, opts = {}) {
+    if (rec?.isRobot && typeof Robots !== 'undefined') { const rc = Robots.portraitCanvas(rec); if (rc) return rc; }   // update257
     const colour = (typeof crewColor === 'function') ? crewColor(rec) : '#4db8ff';
     const seed = seedOf(rec);
     const bare = !!opts.bare, asleep = !!opts.asleep;

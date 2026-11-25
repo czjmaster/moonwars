@@ -340,6 +340,11 @@ class Station {
         }),
       });
     }
+    /* A ROBOT ON THE BOARD (update257, jj: „roboty można kupić w stacjach"): now and then the yard's own unit sits in
+       a booth of the bar, its price on its card. Never at a black market. */
+    if (typeof Robots !== 'undefined' && !this.blackMarket && stock.crew.length < 3 && r() < 0.6) {
+      stock.crew.push(Robots.offer(r, this.sector));
+    }
 
     return stock;
   }
@@ -972,7 +977,7 @@ class Station {
        a dead man left aboard is not taking a bunk. */
     if (this.crewRoomLeft(ship) <= 0) return { ok: false, message: 'Crew quarters full.' };
 
-    const cost = this.crewCost();
+    const cost = this.feeOf(item);
     if (run.scrap < cost) return { ok: false, message: 'Insufficient CC.' };
 
     item.sold = true;
@@ -982,6 +987,9 @@ class Station {
     Audio.sfx.levelUp();
     return { ok: true, cost, message: `${item.name} joined the crew.` };
   }
+
+  /** A hand's signing fee, or a robot's price (update257). */
+  feeOf(item) { return item?.robot ? (item.fee ?? 150) : this.crewCost(); }
 
   static get CREW_ROOM() { return 8; }
   /** Bunks left aboard: the room, less everybody still alive. */

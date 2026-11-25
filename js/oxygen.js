@@ -254,6 +254,7 @@ class RoomOxygen {
       crew.forEach(c => {
         if (!c || c.dying || c.dead) return;
         const max = c.airMax ? c.airMax() : 0;
+        if (c.isRobot) { c.air = max; return; }           // no lungs (update257)
         if (breathable) {
           c.air = Math.min(max, (c.air ?? max) + air.REFILL_PER_SEC * dt);
           c._airAlarm = false;

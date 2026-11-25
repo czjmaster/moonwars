@@ -33,7 +33,7 @@ const Game = (() => {
 const MENU_ITEMS = ['ENTER BASE','OPTIONS','NEW GAME'];
 /* THE BUILD ON THE TITLE SCREEN (update254, jj 23.11): 0.<update> until the release (then 1.0.0). Raised with
    every package. */
-const GAME_VERSION = '0.256';
+const GAME_VERSION = '0.257';
 /* THE TITLE SCREEN (update123, jj: "co do menu zrób to, co napisałeś"):
    your own hull drifting past the Moon with its roof on, a line under
    ENTER BASE saying what is waiting in there, and NEW GAME — behind a
@@ -3173,7 +3173,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   function _salvageBreathe(m, dt) {
     const c = m.c;
     const max = c.airMax ? c.airMax() : 0;
-    c.air = Math.max(0, (c.air ?? max) - dt);
+    if (!c.isRobot) c.air = Math.max(0, (c.air ?? max) - dt);        // a robot needs no bottle (update257)
     if (c.air <= 0) c.takeDamage(SALVAGE.VOID_DPS * dt, 'the void');
     if (c.dead || c.dying || c.down) {
       if (!c.dead) c.killOutright('the void');

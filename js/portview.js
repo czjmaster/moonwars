@@ -536,7 +536,7 @@ const PortView = (() => {
     if (!item) return 'nobody';
     if (item.sold) return 'HIRED';
     if ((_st.crewRoomLeft?.(_ship) ?? 1) <= 0) return 'NO BUNK FREE';
-    const fee = _st.crewCost?.() ?? 0, cc = (typeof Save !== 'undefined') ? (Save.getRun?.()?.scrap ?? 0) : 0;
+    const fee = (_st.feeOf ? _st.feeOf(item) : _st.crewCost?.()) ?? 0, cc = (typeof Save !== 'undefined') ? (Save.getRun?.()?.scrap ?? 0) : 0;
     if (cc < fee) return `NEED ${fee - cc} MORE CC`;
     return null;
   }
@@ -658,7 +658,7 @@ const PortView = (() => {
       }
       const corp = (typeof CORP_DEFS !== 'undefined' && CORP_DEFS[m.race]) || {};
       const perk = (typeof CORP_PERK_TEXT !== 'undefined' && CORP_PERK_TEXT[m.race]) || 'Steady hand, no special training.';
-      const words = `${corp.label || m.race || ''}: ${perk}`;
+      const words = (m.isRobot && typeof Robots !== 'undefined') ? Robots.describe(m) : `${corp.label || m.race || ''}: ${perk}`;   // update257
       let y = b.y + 100, cur = '';
       const per = 62;
       const lines = [];
@@ -666,14 +666,15 @@ const PortView = (() => {
       lines.push(cur);
       lines.slice(0, 3).forEach(l => { _text(ctx, l, b.x + 16, y, '#b8a8cc', 10); y += 13; });
       // the fee and SIGN ON
-      _text(ctx, item.sold ? '' : `${fee} CC`, b.x + b.w - 20, b.y + 34, '#ffd700', 16, 'right', 'bold');
-      if (!item.sold) _text(ctx, 'signing fee', b.x + b.w - 20, b.y + 50, '#7a6a8a', 10, 'right');
+      const fee1 = _st.feeOf ? _st.feeOf(item) : fee;
+      _text(ctx, item.sold ? '' : `${fee1} CC`, b.x + b.w - 20, b.y + 34, '#ffd700', 16, 'right', 'bold');
+      if (!item.sold) _text(ctx, item.robot ? 'price · a robot' : 'signing fee', b.x + b.w - 20, b.y + 50, '#7a6a8a', 10, 'right');
       const r = hireRect(i), why = hireBlock(i), can = !why;
       const hot = can && Utils.pointInRect(Input.mouse.x, Input.mouse.y, r.x, r.y, r.w, r.h);
       ctx.fillStyle = hot ? 'rgba(26,255,140,0.18)' : can ? 'rgba(26,255,140,0.08)' : 'rgba(10,10,16,0.8)';
       ctx.fillRect(r.x, r.y, r.w, r.h);
       ctx.strokeStyle = can ? '#1aff8c' : '#3a3a4a'; ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
-      _text(ctx, can ? 'SIGN ON' : why, r.x + r.w / 2, r.y + 23, can ? '#1aff8c' : '#6a6a7a', 12, 'center', 'bold');
+      _text(ctx, can ? (item.robot ? 'BUY' : 'SIGN ON') : why, r.x + r.w / 2, r.y + 23, can ? '#1aff8c' : '#6a6a7a', 12, 'center', 'bold');
       if (can) _zones.push({ act: 'hire', arg: i, ...r });
     }
     // back to the promenade

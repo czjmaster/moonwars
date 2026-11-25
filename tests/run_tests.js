@@ -47254,6 +47254,102 @@ section('442. jj 22.11 22:27 (256): the fighter on orders — BOARD a selected h
 })();
 
 // ============================================================
+section('443. jj 22.11 22:27 (257): robots — four makers, three trades; no air, no food, no medbay; a cell that runs down and a charger at the reactor; built-in skills; wrecked, not wounded; sold in the bar; they fly the fighter');
+// ============================================================
+(function testUpdate257Robots() {
+  const quiet = (fn) => { const log = console.log, warn = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = log; console.warn = warn; } };
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const sb = loadEngine();
+  const { Ship, CrewMember, Robots, ROBOT, Save, Station, Fighters } = sb;
+
+  // ── 1. MAKERS AND TRADES ──
+  ok(Object.keys(Robots.MODELS).sort().join() === 'aquarius,pegasus,phoenix,terra', 'one maker a corporation');
+  ok(Object.keys(Robots.KINDS).join() === 'repair,operator,combat', 'three trades: repair, operator, combat');
+  const rep = Robots.make('aquarius', 'repair', { serial: 7 }), opr = Robots.make('phoenix', 'operator'), cmb = Robots.make('terra', 'combat'), zep = Robots.make('pegasus', 'repair');
+  ok(rep.isRobot && rep.name === 'HYDRA R-07', `its name is its maker and trade (${rep.name})`);
+  ok(rep.getSkillLevel('repair') === 3 && rep.repairSpeed() > Robots.make('aquarius', 'combat').repairSpeed(), 'a repair unit mends best');
+  ok(['piloting', 'weapons', 'engines', 'shields'].every(k => opr.getSkillLevel(k) === 2), 'an operator runs every console as a trained hand');
+  ok(cmb.getSkillLevel('combat') === 3 && cmb.maxHp === 150 && cmb.meleeDamage() > rep.meleeDamage(), `a combat unit hits hardest; BASTION armour on top (${cmb.maxHp} HP)`);
+  ok(Robots.energyMax(zep) === 130 && Robots.energyMax(rep) === 100, 'ZEPHYR carries the long cell');
+  ok(rep.addXP('repair', 500) === 0 && rep.getSkillLevel('repair') === 3 && opr.addXP('piloting', 500) === 0, 'it does not learn — its skills are built in');
+  ok(rep.breathPerSec() === 0 && rep.hungerPerSec() === 0, 'no lungs, no stomach');
+  const back = CrewMember.deserialise(JSON.parse(JSON.stringify(cmb.serialise())));
+  ok(back.isRobot && back.robotKind === 'combat' && back.maxHp === 150, 'saved and loaded, still a robot of its trade and frame');
+
+  // ── 2. ITS CELL AND ITS CHARGER ──
+  Save.load(); Save.startRun();
+  const ship = new Ship('enemy_geb', true, 80, 120);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  ship.assignStations();
+  const bot = Robots.make('aquarius', 'repair');
+  ship.addCrew(bot);
+  const reactor = Robots.chargerOf(ship);
+  ok(!!reactor, 'its hull has a charger: the reactor\'s room');
+  const post = ship.rooms.find(r => r.id !== reactor.id && r.type !== 'corridor') ?? ship.rooms[0];
+  bot.homeRoomId = post.id; bot.roomId = post.id; [bot.x, bot.y] = ship.stationSlot(post, 1); bot._waypoints = [];
+  quiet(() => bot.update(1, ship));
+  ok(bot.energy < 100 && bot.energy > 99, `standing by, its cell runs down slowly (${bot.energy.toFixed(2)})`);
+  const e0 = bot.energy; bot.task = 'repair'; quiet(() => bot.update(1, ship)); bot.task = 'idle';
+  ok(e0 - bot.energy > 0.3, 'working, faster');
+  /* vented room: nothing to breathe */
+  bot.air = 0; quiet(() => bot.update(0.1, ship));
+  ok(bot.air === bot.airMax() && bot.hunger === 100, 'a vented room and an empty mess are nothing to it');
+  /* low: it walks to the reactor */
+  bot.energy = 10; quiet(() => bot.update(0.05, ship));
+  ok(bot._charging && bot.homeRoomId === reactor.id, 'under a fifth it sets off for the reactor');
+  bot.roomId = reactor.id; [bot.x, bot.y] = ship.stationSlot(reactor, 2); bot._waypoints = [];
+  bot.hp = 40;
+  for (let i = 0; i < 40; i++) quiet(() => bot.update(0.5, ship));
+  ok(!bot._charging && bot.energy >= 98 && bot.hp > 40 && bot.homeRoomId === post.id, `charged and mended at the reactor, then back to its post (${Math.round(bot.energy)}, ${Math.round(bot.hp)} HP)`);
+  /* ordered away while it walks to the charger: it obeys */
+  bot.energy = 5; quiet(() => bot.update(0.05, ship));
+  bot.homeRoomId = post.id; quiet(() => bot.update(0.05, ship));
+  ok(!bot._charging && bot._chargeCd > 0, 'ordered away on its way: it obeys for a while');
+  bot.energy = 0;
+  ok(bot.effortFactor() === Robots.ROBOT.EMPTY_PACE, 'empty, it works at a third of its pace');
+  /* the medbay is not for it */
+  const med = ship.rooms.find(r => r.type === 'medbay');
+  if (med) { bot.roomId = med.id; ok(!ship.medbayPatients(med.id).includes(bot), 'the medbay does not take it'); }
+  else ok(true, '(no medbay on this hull)');
+  /* wrecked, not wounded */
+  const grave0 = (Save.getGraveyard?.() ?? []).length;
+  let downs = 0;
+  for (let i = 0; i < 30; i++) { const b = Robots.make('phoenix', 'combat'); quiet(() => b.takeDamage(999, 'test')); if (b.state === 'injured') downs++; }
+  ok(downs === 0, 'it is never DOWN and waiting for a stretcher: it is wrecked');
+  ok((Save.getGraveyard?.() ?? []).length === grave0, 'no headstone for a robot');
+  const corpse = Robots.make('terra', 'repair'); corpse.dead = true; corpse.state = 'dead';
+  ship._startDecay(corpse);
+  ok(!corpse.decaying, 'a wrecked robot does not rot');
+
+  // ── 3. THE PICTURE ──
+  const { makeCtx } = require('./harness.js');
+  let threw = null;
+  try { ['aquarius', 'phoenix', 'terra', 'pegasus'].forEach(r => ['repair', 'operator', 'combat'].forEach(k => { const b = Robots.make(r, k); b.x = 50; b.y = 50; b.draw(makeCtx()); b.state = 'dead'; b.dead = true; Robots.drawBody(makeCtx(), b); })); }
+  catch (e) { threw = e; }
+  ok(!threw, 'every maker and trade draws, on its feet and wrecked' + (threw ? ` (${threw.message})` : ''));
+  ok(/Robots\.drawBody\(ctx, this\)/.test(read('js/crew.js')) && /rec\?\.isRobot && typeof Robots/.test(read('js/crewart.js')), 'on the deck and on its card: a robot, not a man');
+
+  // ── 4. SOLD IN THE BAR ──
+  let found = null;
+  for (let seed = 1; seed < 80 && !found; seed++) { const st = new Station(2, seed); found = st.stock.crew.find(x => x.robot) ? st : null; }
+  ok(!!found, 'a yard now and then has a robot in a booth of the bar');
+  const item = found.stock.crew.find(x => x.robot), idx = found.stock.crew.indexOf(item);
+  ok(found.feeOf(item) === item.fee && item.fee >= 150, `its price on its card (${item.fee} CC)`);
+  found.refusal = () => null;
+  Save.updateRun({ scrap: 1000 });
+  const before = ship.crew.length;
+  const r = quiet(() => found.buyCrew(idx, ship, Save.getRun()));
+  ok(r.ok && ship.crew.length === before + 1 && Save.getRun().scrap === 1000 - item.fee, `bought: ${r.message}`);
+  ok(/item\.robot \? 'BUY' : 'SIGN ON'/.test(read('js/portview.js')) && /Robots\.describe\(m\)/.test(read('js/portview.js')), 'the booth says BUY and what it does');
+
+  // ── 5. IN THE FIGHTER ──
+  ok(/c\.race !== 'pegasus' && !c\.isRobot/.test(read('js/fighters.js')), 'a robot pilot does not choke in her when her O₂ module is out');
+  ok(/'robots'/.test(read('tests/harness.js')) && /js\/robots\.js/.test(read('index.html')), 'loaded in the page and the tests');
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

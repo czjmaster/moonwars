@@ -61,7 +61,7 @@ const BREAKS = [
     // `sys.crew` (a patient is not an operator). The question is the
     // same one — does the ward see the ship's cat — and it is asked of
     // `medbayPatients` now, which is the only list of who it treats.
-    from: "    return this.crew.filter(c =>\n      c && !c.dead && c.roomId === roomId && c.inRoom !== false &&\n      c.isPlayer === this.isPlayer);",
+    from: "    return this.crew.filter(c =>\n      c && !c.dead && !c.isRobot && c.roomId === roomId && c.inRoom !== false &&     // a robot mends at the reactor (update257)\n      c.isPlayer === this.isPlayer);",
     to:   "    return this.crewOperating(roomId);",
   },
   {
@@ -3011,7 +3011,7 @@ const BREAKS = [
   {
     name: '#78 the patients are the able only, as they were',
     file: F('ship.js'),
-    from: "    return this.crew.filter(c =>\n      c && !c.dead && c.roomId === roomId && c.inRoom !== false &&\n      c.isPlayer === this.isPlayer);",
+    from: "    return this.crew.filter(c =>\n      c && !c.dead && !c.isRobot && c.roomId === roomId && c.inRoom !== false &&     // a robot mends at the reactor (update257)\n      c.isPlayer === this.isPlayer);",
     to:   "    return this.crewInRoom(roomId);",
   },
   {
@@ -4157,7 +4157,7 @@ const BREAKS = [
   {
     name: '#87 a Terra from an old save keeps his hundred',
     file: F('crew.js'),
-    from: '    if (!this.isPet && CORP_DEFS[this.race]?.maxHp && this.baseMaxHp > frame) {',
+    from: '    if (!this.isPet && !this.isRobot && CORP_DEFS[this.race]?.maxHp && this.baseMaxHp > frame) {',
     to:   '    if (false) {',
   },
   {
@@ -19003,6 +19003,102 @@ const BREAKS = [
     file: F('fighters.js'),
     from: "        if (lw) {                                                    // nobody to open the lift: she waits under the keel",
     to:   "        if (false) {",
+  },
+  {
+    name: "#257 a robot breathes",
+    file: F('crew.js'),
+    from: "    if (this.isRobot) return 0;                       // no lungs (update257)\n",
+    to:   "",
+  },
+  {
+    name: "#257 a robot learns",
+    file: F('crew.js'),
+    from: "    if (this.isRobot) return 0;                       // its skills are built in: it does not learn (update257)\n",
+    to:   "",
+  },
+  {
+    name: "#257 its cell never runs",
+    file: F('crew.js'),
+    from: "    if (this.isRobot && typeof Robots !== 'undefined') Robots.tick(this, dt, ship);   // its cell and its charger (update257)\n",
+    to:   "",
+  },
+  {
+    name: "#257 a robot goes DOWN for a stretcher",
+    file: F('crew.js'),
+    from: "      if (!this.isPet && !this.isRobot && Math.random() < 0.35) {",
+    to:   "      if (!this.isPet && Math.random() < 0.35) {",
+  },
+  {
+    name: "#257 a headstone for a robot",
+    file: F('crew.js'),
+    from: "      if (this.isPlayer && !this.isRobot && !this._graved) {",
+    to:   "      if (this.isPlayer && !this._graved) {",
+  },
+  {
+    name: "#257 the save forgets it is a robot",
+    file: F('crew.js'),
+    from: "      ...(this.isRobot ? { isRobot: true, robotKind: this.robotKind, energy: this.energy } : {}),   // update257\n",
+    to:   "",
+  },
+  {
+    name: "#257 a robot rots",
+    file: F('ship.js'),
+    from: "    if (c.decaying || c.isRobot) return;                  // a wrecked robot does not rot (update257)",
+    to:   "    if (c.decaying) return;",
+  },
+  {
+    name: "#257 the medbay takes robots",
+    file: F('ship.js'),
+    from: "      c && !c.dead && !c.isRobot && c.roomId === roomId",
+    to:   "      c && !c.dead && c.roomId === roomId",
+  },
+  {
+    name: "#257 it never goes to charge",
+    file: F('robots.js'),
+    from: "    if (!c._charging && room && c.energy < max * ROBOT.LOW / 100",
+    to:   "    if (false && room && c.energy < max * ROBOT.LOW / 100",
+  },
+  {
+    name: "#257 the charger does not charge",
+    file: F('robots.js'),
+    from: "        c.energy = Math.min(max, c.energy + ROBOT.CHARGE * (model(c).charge ?? 1) * dt);\n",
+    to:   "",
+  },
+  {
+    name: "#257 it never goes back to its post",
+    file: F('robots.js'),
+    from: "      if (c.energy >= max * ROBOT.FULL / 100) done(c, home);\n",
+    to:   "",
+  },
+  {
+    name: "#257 no robots in the bar",
+    file: F('station.js'),
+    from: "      stock.crew.push(Robots.offer(r, this.sector));\n",
+    to:   "",
+  },
+  {
+    name: "#257 a robot at a hand's fee",
+    file: F('station.js'),
+    from: "  feeOf(item) { return item?.robot ? (item.fee ?? 150) : this.crewCost(); }",
+    to:   "  feeOf(item) { return this.crewCost(); }",
+  },
+  {
+    name: "#257 drawn as a man",
+    file: F('crew.js'),
+    from: "    } else if (this.isRobot && typeof Robots !== 'undefined') {",
+    to:   "    } else if (false) {",
+  },
+  {
+    name: "#257 the robot pilot chokes",
+    file: F('fighters.js'),
+    from: "c.race !== 'pegasus' && !c.isRobot) c.takeDamage",
+    to:   "c.race !== 'pegasus') c.takeDamage",
+  },
+  {
+    name: "#257 ordered away, it goes to the charger anyway",
+    file: F('robots.js'),
+    from: "    if (c._charging && room && c.homeRoomId !== room.id) { c._charging = false; c._chargeCd = ROBOT.OVERRIDE_CD; return; }\n",
+    to:   "",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

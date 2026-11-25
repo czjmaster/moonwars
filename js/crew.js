@@ -557,6 +557,11 @@ class CrewMember {
     /* The cat is the one animal left in a crew list (update84) — the
        spider and rat flags went with them, into pests.js. */
     this.isPet    = !!corp?.pet;
+    /* A ROBOT (update257, robots.js): a hand of metal — the same crewman's code, its own air, food, mending and
+       learning rules. Its trade and its cell are saved with it. */
+    this.isRobot   = !!cfg.isRobot;
+    this.robotKind = cfg.robotKind ?? null;
+    this.energy    = this.isRobot ? (Number.isFinite(cfg.energy) ? cfg.energy : null) : undefined;
     /* ── A PERSON WHO IS NOT CREW (update72) ───────────────────
      *
      * Two of them in the game and they are the same thing seen from
@@ -664,7 +669,7 @@ class CrewMember {
        written while the bug above was live carries 100 as his base. He
        comes back on his corporation's frame, the commander's bonus kept
        as the same fraction on top, his wounds kept as they were. */
-    if (!this.isPet && CORP_DEFS[this.race]?.maxHp && this.baseMaxHp > frame) {
+    if (!this.isPet && !this.isRobot && CORP_DEFS[this.race]?.maxHp && this.baseMaxHp > frame) {
       const k = frame / this.baseMaxHp;
       this.baseMaxHp = frame;
       this.maxHp = Math.round(this.maxHp * k);
@@ -796,6 +801,7 @@ class CrewMember {
    * the `breathes()` that stood here went with the spider — update84.)
    */
   breathPerSec() {
+    if (this.isRobot) return 0;                       // no lungs (update257)
     const t = (typeof OXYGEN !== 'undefined') ? OXYGEN.BREATH_PER_SEC : null;
     return t ? (t[this.race] ?? t._default) : 0;
   }
@@ -812,6 +818,7 @@ class CrewMember {
 
   /** How fast its stomach empties, by race. */
   hungerPerSec() {
+    if (this.isRobot) return 0;                       // no stomach (update257)
     const t = (typeof HUNGER !== 'undefined') ? HUNGER.PER_SEC : null;
     return t ? (t[this.race] ?? t._default) : 0;
   }
@@ -865,6 +872,7 @@ class CrewMember {
    */
   addXP(skill, amount) {
     if (!this.skills[skill]) return 0;
+    if (this.isRobot) return 0;                       // its skills are built in: it does not learn (update257)
     // Corporation specialisation: 2x XP in signature skills
     const corp = CORP_DEFS[this.race];
     if (corp && corp.xpBonus && corp.xpBonus[skill]) amount *= corp.xpBonus[skill];
@@ -900,7 +908,7 @@ class CrewMember {
   /** What the flying commander is worth to this crew member (zeroes when
    *  none is flying, or he is of another corporation). */
   _capBonus() {
-    if (typeof Commander === 'undefined') {
+    if (typeof Commander === 'undefined' || this.isRobot) {      // a robot has no captain's blessing (update257)
       return { hp: 0, speed: 0, repair: 0, melee: 0,
                firefight: 0, breach: 0, meleeResist: 0, air: 0, hpFlat: 0 };
     }
@@ -927,6 +935,7 @@ class CrewMember {
    * speeds below.
    */
   effortFactor() {
+    if (this.isRobot) return (typeof Robots !== 'undefined') ? Robots.effort(this) : 1;   // its cell, not its stomach (update257)
     const h = this.hunger ?? 100;
     const E = HUNGER.EFFORT;
     if (h <= HUNGER.STARVING) return E.starving;
@@ -1287,6 +1296,7 @@ class CrewMember {
     // body pipeline). 'dying' is NOT guarded here — the dying branch
     // below must run so the death timer can finish.
     if (this.dead) return;
+    if (this.isRobot && typeof Robots !== 'undefined') Robots.tick(this, dt, ship);   // its cell and its charger (update257)
 
     if (this._pathRetryCd > 0) this._pathRetryCd -= dt;
     const _f0 = this.anim.frame;
@@ -2109,7 +2119,7 @@ class CrewMember {
     this._noteDeath(source);
     Particles.crewDie?.(this.x, this.y);
     Audio.sfx.crewDie?.();
-    if (this.isPlayer && !this._graved) { Save.addToGraveyard(this); this._graved = true; }
+    if (this.isPlayer && !this.isRobot && !this._graved) { Save.addToGraveyard(this); this._graved = true; }
     return true;
   }
 
@@ -2129,7 +2139,7 @@ class CrewMember {
       // another crew member can carry them to the medbay.
       // Suffocation included: it leaves a body (or a casualty) too.
       // NOT vermin: nobody stretchers a rat to the med bay.
-      if (!this.isPet && Math.random() < 0.35) {
+      if (!this.isPet && !this.isRobot && Math.random() < 0.35) {      // a robot is wrecked, not wounded (update257)
         this.hp    = 1;
         this.state = 'injured';
         this._waypoints = [];
@@ -2151,8 +2161,8 @@ class CrewMember {
       Particles.crewDie(this.x, this.y);
       Audio.sfx.crewDie();
 
-      // Add to persistent graveyard (once — killOutright may also run)
-      if (this.isPlayer && !this._graved) { Save.addToGraveyard(this); this._graved = true; }
+      // Add to persistent graveyard (once — killOutright may also run) — not a robot (update257)
+      if (this.isPlayer && !this.isRobot && !this._graved) { Save.addToGraveyard(this); this._graved = true; }
     }
   }
 
@@ -2385,6 +2395,9 @@ class CrewMember {
     if (aimNow) {
       if (!this._aimAnim) this._aimAnim = CrewArt.anim('shoot', this);
       this._aimAnim.draw(ctx, this.x, this.y, 32, 32);
+    } else if (this.isRobot && typeof Robots !== 'undefined') {
+      ctx.restore(); ctx.save();                                                     // it faces by its tool, not a flip
+      Robots.drawBody(ctx, this);
     } else this.anim.draw(ctx, this.x, this.y - (this.isPet ? CrewMember.CAT_FEET : 0), 32, 32);
 
     ctx.restore();
@@ -2615,6 +2628,7 @@ class CrewMember {
       sidearm: this.sidearm ?? null,                        // update174
       sidearmRarity: this.sidearmRarity ?? null,            // update178
       skills: Utils.deepClone(this.skills),
+      ...(this.isRobot ? { isRobot: true, robotKind: this.robotKind, energy: this.energy } : {}),   // update257
     };
   }
 
