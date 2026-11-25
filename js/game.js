@@ -33,7 +33,7 @@ const Game = (() => {
 const MENU_ITEMS = ['ENTER BASE','OPTIONS','NEW GAME'];
 /* THE BUILD ON THE TITLE SCREEN (update254, jj 23.11): 0.<update> until the release (then 1.0.0). Raised with
    every package. */
-const GAME_VERSION = '0.258';
+const GAME_VERSION = '0.259';
 /* THE TITLE SCREEN (update123, jj: "co do menu zrób to, co napisałeś"):
    your own hull drifting past the Moon with its roof on, a line under
    ENTER BASE saying what is waiting in there, and NEW GAME — behind a
@@ -1193,6 +1193,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   }
 
   function _updateMap(dt) {
+    if (_sosQuiet > 0) _sosQuiet = Math.max(0, _sosQuiet - dt);      // the channel comes back (update259)
     _watchPassengers();
     _searchErrandTick(dt);
     /* THE TANKS RUN ON THE MAP TOO (update222, jj: "paliwo i powietrze nie zużywa się na mapie, powinno się
@@ -1772,6 +1773,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (!sys) return `${what} missing — cannot jump!`;
     if (sys.workingLevels <= 0) return `${what} wrecked — send a hand into the ${where} to repair them.`;
     if (sys.ionDamage > 0 && Math.min(sys.power, sys.workingLevels) > 0) return `${what} ion-locked — wait for the charge to bleed off.`;
+    /* NO POWER TO ROUTE (update259, autoplay: „route reactor power to them" for minutes, with the reactor itself shot
+       to pieces): the reactor is what to send a hand to */
+    const re = _playerShip?.getSystem?.('reactor');
+    if (re && (re.workingLevels ?? 1) <= 0) return `${what} dark — the REACTOR is wrecked: send a hand into the reactor room to repair it.`;
     return `${what} offline — route reactor power to them.`;
   }
 
@@ -1782,7 +1787,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       const h = CombatManager.tractorHold?.() ?? 0;          // update231: what it holds, and what tears free
       return `TRACTOR LOCK — it holds ENGINES up to ${h}: break their TRACTOR or power ENGINES to ${h + 1} to jump.`;
     }
-    if (_fuelAboard() <= 0) return _playerShip?.cargo?.countOf?.('fuel') > 0
+    /* …and LEAKING (update259): whatever goes into it bleeds out before the jump — the engines first */
+    const leak = (_playerShip?.getSystem?.('engines')?.damagedLevels ?? 0) > 0;     // a damaged drive bleeds its tank (tanks.js leakRate)
+    if (_fuelAboard() <= 0) return leak
+      ? 'DRIVE WILL NOT SPIN UP — the He2 tank is dry and LEAKING: repair the ENGINES first, or it bleeds out again.'
+      : _playerShip?.cargo?.countOf?.('fuel') > 0
       ? 'DRIVE WILL NOT SPIN UP — the He2 tank is dry (the cells in the hold go in at a port).'
       : 'DRIVE WILL NOT SPIN UP — the He2 tank is dry.';
     const eng = _playerShip?.getSystem('engines');
@@ -1795,7 +1804,14 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const at = _playerShip.crewOperating
       ? _playerShip.crewOperating(pil.roomId).filter(c => c && c.isPlayer && !c.isPet)
       : [];
-    if (!at.length) return 'Nobody at the helm — put a hand in the cockpit.';
+    if (!at.length) {
+      /* …AND WHY NOBODY GETS THERE (update259, autoplay: a pilot stood two minutes in the gun room under „Nobody at
+         the helm" — the lift to the cockpit was dark, its power given to the guns) */
+      const lifts = _playerShip.elevators?.shafts ?? [];
+      if (lifts.some(s => s.powered === false && !s.damaged)) return 'Nobody at the helm — and a LIFT is dark: free a bar of reactor power for the lifts, or walk a hand up.';
+      if (lifts.some(s => s.damaged)) return 'Nobody at the helm — and a LIFT is wrecked: repair it, or get a hand to the cockpit another way.';
+      return 'Nobody at the helm — put a hand in the cockpit.';
+    }
     return null;
   }
 
@@ -3924,22 +3940,24 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     // Boarders and loose SPIDERS both live in _playerShip.crew — only
     // your own people count, or a ship full of spiders would read as
     // "still crewed" after they had killed everybody.
+    /* …NOR A ROBOT (update259, autoplay: three men dead, one robot standing in a dark engine room with its charger
+       wrecked — the run never ended and never could): a ship is crewed by people. */
     let n = _playerShip
-      ? _playerShip.crew.filter(c => c.isPlayer && !c.dead && !c.dying && !c.isPassenger).length : 0;   // a passenger does not keep her crewed (update162)
+      ? _playerShip.crew.filter(c => c.isPlayer && !c.dead && !c.dying && !c.isPassenger && !c.isRobot).length : 0;   // a passenger does not keep her crewed (update162)
     if (_boardingParty) {
       // 'muster' members are still counted in _playerShip.crew above;
       // only count boarders who have already LEFT the ship (fly/wait).
       n += _boardingParty.members.filter(m =>
         m.phase !== 'cancelled' && m.phase !== 'muster' &&
-        !m.c.dead && !m.c.dying).length;
+        !m.c.dead && !m.c.dying && !m.c.isRobot).length;
     }
     if (_enemyShip) {
       // A survivor on a wreck is not one of ours until he is aboard (update90b).
       n += _enemyShip.crew.filter(c =>
-        c.isPlayer && !c._survivor && !c.dead && !c.dying).length;
+        c.isPlayer && !c._survivor && !c.dead && !c.dying && !c.isRobot).length;
     }
     // …and the men out in the wreckage (update93b).
-    if (CombatManager.salvage) n += CombatManager.salvage.men.filter(m => m.phase !== 'muster' && !m.c.dead && !m.c.dying).length;
+    if (CombatManager.salvage) n += CombatManager.salvage.men.filter(m => m.phase !== 'muster' && !m.c.dead && !m.c.dying && !m.c.isRobot).length;
     return n;
   }
 
@@ -4865,11 +4883,14 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       if (_sosFightPending) _sosNode = null;    // they got away with their He2: call again (update208)
       _sosFightPending = false;   // they jumped out with their tanks
       /* THEY JUMPED WITH OUR PEOPLE ABOARD (update93b): gone with them. */
-      _recoverBoarders({ aboardLost: 'carried off on the enemy ship' });
+      /* …or a bunker or a mech nobody could hurt went quiet (update259): our people come home from it */
+      const quietGround = CombatManager.escapeWhy === 'ground', who = _enemyShip?.label ?? 'Their position';
+      _recoverBoarders(quietGround ? {} : { aboardLost: 'carried off on the enemy ship' });
       CombatManager.end(); _enemyShip = null; _saveShip();
       _playerShip.reactor.penalty = 0; _nebulaCombat = false;
       _clearWreckMode();
-      UI.notify('Enemy ship ESCAPED — no salvage…', 'warn');
+      UI.notify(quietGround ? `${who} goes quiet — neither side can hurt the other. We fly on; nothing to salvage.`
+                            : 'Enemy ship ESCAPED — no salvage…', 'warn');
       _leaveFight(); Audio.playMusic('explore');
       return;
     }
@@ -6294,6 +6315,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   const PICK_MAX = 2;
   function _eventRewards(result) {
     if (!result || result.oneOf) return [];
+    /* A PURCHASE IS NOT A REWARD TO CHOOSE FROM (update259, autoplay: the distress beacon sold „He2 and air" for 95 CC,
+       the cards made the buyer pick ONE — the air was taken, the drive stayed dry, the channel was dead: stranded for
+       good). What is paid for comes whole. */
+    if (result.bundle || (typeof result.scrap === 'number' && result.scrap < 0)) return [];
     const plus = v => Array.isArray(v) ? (v[0] >= 0 && v[1] > 0) : typeof v === 'number' ? v > 0 : !!v;
     return EVENT_REWARDS.filter(k => result[k] != null && plus(result[k]));
   }
@@ -9680,6 +9705,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
      game with no teeth. The beacon now answers ONCE per node; stay put
      with a dry hold and the channel goes quiet. */
   let _sosNode = null;
+  /* THE CHANNEL COMES BACK (update259, autoplay: a crew that begged 10 L of He2 with the engines leaking watched it
+     bleed out before the jump — and the channel at that node stayed dead for good, He2 cells in the hold and no way to
+     pour them out here). After SOS_QUIET seconds on the map somebody else is in range; call again. */
+  let _sosQuiet = 0;
+  const SOS_QUIET = 90;
 
   function _maybeSOS(force = false) {
     const run = Save.getRun();
@@ -9687,11 +9717,12 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const here = _sectorMap?.currentId ?? null;
     // `force` is the re-offer after an unaffordable trade: that is the
     // SAME broadcast still on the air, not a second one.
-    if (!force && _sosNode !== null && _sosNode === here) {
-      UI.notify('The channel is dead — nobody else is out here.', 'alert');
+    if (!force && _sosNode !== null && _sosNode === here && _sosQuiet > 0) {
+      UI.notify(`The channel is dead — nobody else is out here. Try again in ${Math.ceil(_sosQuiet)} s.`, 'alert');
       return;
     }
     _sosNode = here;
+    _sosQuiet = SOS_QUIET;
     const sector  = run.sector ?? 1;
     /* WHAT IS SHORT SETS THE PRICE (update208, jj: "zatankuje to, co mamy, za małą opłatą; jak nie
        mamy, a potrzebujemy jednej lub dwóch rzeczy, trzeba zapłacić więcej; jak nie mamy pieniędzy,
@@ -9710,7 +9741,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     choices.push({
       label: canPay ? `Buy ${what} from the trader (${price} CC)`
                     : `Buy ${what} — need ${price} CC (you have ${run.scrap})`,
-      result: canPay ? { scrap: -price, tankFuel: 4, ...(airFill ? { tankAir: airFill } : {}) } : { sosRetry: true },
+      result: canPay ? { scrap: -price, tankFuel: 4, ...(airFill ? { tankAir: airFill } : {}), bundle: true } : { sosRetry: true },
     });
     if (cargo) {
       choices.push({

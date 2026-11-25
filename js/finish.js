@@ -199,8 +199,9 @@ const Finish = (() => {
     return null;
   }
   /* A FATALITY COSTS NO KNOWLEDGE (update254, jj 23.11: „te fatality nie powinno zabierać wiedzy chyba"): the papyrus
-     is spent finishing them; a MERCY still costs RECORD_COST. */
-  function recordCost(def) { return def?.kind === 'fatality' ? 0 : RECORD_COST; }
+     is spent finishing them. …NOR A MERCY (update259, jj 25.11: „mercy tak za darmo"): the seal is the price. One
+     place for the price all the same — the Book and the refusal read it here. */
+  function recordCost(def) { return 0; }
 
   function _check(ev) {
     if (!_f || _f.used || !finishing()) return null;

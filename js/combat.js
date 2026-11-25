@@ -171,6 +171,10 @@ class Combat {
        "wróg ucieka po 60 s bez zadanych obrażeń". */
     this.escapeWhy          = null;
     this.STALEMATE_SECONDS  = 60;
+    this.GROUND_STALEMATE   = 150;     // update259: a bunker or a mech nobody can hurt — the fight goes quiet
+    this._groundT           = 0;
+    this._groundHarm        = null;
+    this._groundHull        = null;
     this._noHarmT           = 0;
     this._harmSeen          = (typeof Ship !== 'undefined' && Ship.harmToPlayer) ? Ship.harmToPlayer() : 0;
 
@@ -489,6 +493,22 @@ class Combat {
         this._enemyEscapeT     = 0;
         this._escapeNotice     = true;
         this.escapeWhy         = 'stalemate';
+      }
+    }
+    /* ── A DRAW ON THE GROUND (update259, autoplay: a mech whose armour our guns could not dent and whose guns could
+     * not reach us — ten minutes of nothing, the He2 tank bled dry over it, and no way left out) ── A bunker or a mech
+     * cannot run, so the stalemate above never ends it. When neither side has hurt the other for GROUND_STALEMATE
+     * seconds — nothing of theirs landing on us, their hull not moving — it goes quiet and we fly on: no salvage, as
+     * when a ship gets away. Any harm, either way, starts the clock over. */
+    if (grounded && this._ai !== AI_DEFS.boss && !this.surrenderOffer) {
+      const seen = (typeof Ship !== 'undefined' && Ship.harmToPlayer) ? Ship.harmToPlayer() : 0;
+      const hull = this.enemyShip.hull;
+      if (seen !== this._groundHarm || hull !== this._groundHull) { this._groundHarm = seen; this._groundHull = hull; this._groundT = 0; }
+      else this._groundT = (this._groundT ?? 0) + dt;
+      if (this._groundT >= this.GROUND_STALEMATE) {
+        this.escapeWhy = 'ground';
+        this.state = COMBAT_STATE.ENEMY_FLED;
+        return;
       }
     }
     /* ── THE LAST MAN RUNS (update127, jj) ──────────────────────

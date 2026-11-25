@@ -39911,7 +39911,7 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
     quietly(() => { out = Finish.noteHit(shot(g[0], 'ion'), room(enemy, 'weapons')); });
     ok(out?.kind === 'mercy' && out.key === 'stand_down', 'an ion into the weapons and the shields in one salvo: STAND DOWN');
     ok(enemy.hull > 0 && !enemy.destroyed && enemy.struck, 'MERCY: they live — they strike');
-    ok(cap.karma === karma0 + 2 && Commander.knowledge(cap) === k0 - 8, 'karma +2, knowledge −8');
+    ok(cap.karma === karma0 + 2 && Commander.knowledge(cap) === k0, 'karma +2, and no knowledge spent (update259: a mercy is free)');
     ok(Finish.banner()?.word === 'QUARTER' && Finish.spoken().some(s => /^QUARTER\.\.\. stand down$/.test(s)), 'banner and voice: QUARTER… stand down');
     ok(Finish.peekPending()?.kind === 'mercy', 'and it waits for the game to settle');
     ok(/cease fire/.test(CombatManager.fireRefusal(enemy.weapons[0] ?? { def: {} }) ?? ''), 'cease fire: our guns hold while they strike');
@@ -39974,7 +39974,7 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
     ok(!Finish.state().used, 'ASHES done without the papyrus: nothing — the recipe needs the record');
     cap.knowledge = 0;
     ok(Finish.refusal(cap, 'meltdown') === null && Finish.recordCost(Chips.RECORDS.meltdown) === 0, 'update254: a papyrus (FATALITY) needs no knowledge — none in hand, still ready');
-    ok(Finish.recordCost(Object.values(Chips.RECORDS).find(d => d.kind === 'mercy')) === Chips.RECORD_COST, '…a seal (MERCY) still costs its knowledge');
+    ok(Finish.recordCost(Object.values(Chips.RECORDS).find(d => d.kind === 'mercy')) === 0, '…nor a seal (MERCY) — update259, jj: „mercy tak za darmo"');
     cap.knowledge = 30; cap.karma = 90;
     ok(/dark/.test(Finish.refusal(cap, 'meltdown')), 'a dark papyrus (a saint\'s wall) does not fire');
     cap.karma = 50;
@@ -40016,7 +40016,7 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
     const kM = Commander.knowledge(cap);
     quietly(() => Finish.noteHit(shot({ id: 1 }), room(enemy, 'piloting')));
     ok(Finish.peekPending()?.kind === 'mercy', 'test setup: a seal fired');
-    ok(Commander.knowledge(cap) === kM - Chips.RECORD_COST, `a seal costs its knowledge (${kM} → ${Commander.knowledge(cap)})`);
+    ok(Commander.knowledge(cap) === kM, `a seal costs no knowledge any more (update259: ${kM} → ${Commander.knowledge(cap)})`);
     quietly(() => T._updateCombat(0.5));
     ok(T.STATE === 'combat' && Finish.peekPending(), 'a beat first: the banner is seen before they strike');
     for (let i = 0; i < Math.ceil(FINISH.SCENE_MERCY / 0.5) + 2 && T.STATE === 'combat'; i++) quietly(() => T._updateCombat(0.5));
@@ -47406,6 +47406,137 @@ section('444. jj 22.11 22:27 (258): the sector-2 boss — an easy carrier: one g
   Robots.drawBody(ctx, bots[0]);
   ok(calls.includes(sb.CrewMember.ENEMY_COLOR), 'theirs wears red');
   ok(/WARNING: \$\{String\(BossManager\.currentPhaseDef/.test(read('js/game.js')) && /Cannot escape \$\{BossManager/.test(read('js/game.js')), 'the warning and the no-escape line name the boss you face');
+})();
+
+// ============================================================
+section('445. jj 25.11 (259): MERCY is free; what the autoplay found — a purchase not split into cards, the beacon calls again, a draw on the ground, robots do not crew a ship, the dark drive names the reactor and the leak');
+// ============================================================
+(function testUpdate259Autoplay() {
+  const quiet = (fn) => { const log = console.log, warn = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = log; console.warn = warn; } };
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Game, Finish, Chips, CombatManager, Ship, Tanks, Robots } = sb;
+  const T = Game.__test;
+
+  // ── 1. MERCY COSTS NO KNOWLEDGE ──
+  const mercy = Object.values(Chips.RECORDS).find(d => d.kind === 'mercy'), fatal = Object.values(Chips.RECORDS).find(d => d.kind === 'fatality');
+  ok(Finish.recordCost(mercy) === 0 && Finish.recordCost(fatal) === 0, 'a seal (MERCY) is free, like a papyrus (FATALITY)');
+
+  // ── a contract in the air ──
+  quiet(() => { Save.load(); Base.earn(1000); BaseScreen.open(); BaseScreen._set({ mission: 'patrol' }); launchNow(BaseScreen); T._startContract(BaseScreen.consumeLaunch()); });
+  const P = T.playerShip;
+  ok(T.STATE === 'map' && !!P, 'test setup: on the sector map');
+
+  // ── 2. A PURCHASE COMES WHOLE ──
+  const he0 = Tanks.amount(P, 'he2'), air0 = Tanks.amount(P, 'air');
+  Tanks.take(P, 'air', air0 * 0.5);
+  const airMid = Tanks.amount(P, 'air');
+  Save.updateRun({ scrap: 500 });
+  T.event = { title: 'Trader', text: 'He sells.', choices: [{ label: 'Buy He2 and air', result: { scrap: -40, tankFuel: 1, tankAir: 30 } }] };
+  T.STATE = 'event';
+  quiet(() => T._resolveEvent(0));
+  ok(!T.event?.pickOne && Tanks.amount(P, 'air') > airMid && Save.getRun().scrap === 460, `paid for He2 and air: both come, no cards to pick one from (air ${Math.round(airMid)} → ${Math.round(Tanks.amount(P, 'air'))})`);
+  T.event = { title: 'Gift', text: 'Two things.', choices: [{ label: 'Take it', result: { scrap: 20, missiles: 2 } }] };
+  T.STATE = 'event';
+  quiet(() => T._resolveEvent(0));
+  ok(T.event?.pickOne === true && T.event.choices.length === 2, 'a gift of two things is still a pick of one (update242)');
+  T.event = null; T.STATE = 'map';
+  ok(/tankFuel: 4, \.\.\.\(airFill \? \{ tankAir: airFill \} : \{\}\), bundle: true/.test(read('js/game.js')), 'the beacon\'s sale is marked as one bundle');
+
+  // ── 3. THE BEACON CALLS AGAIN ──
+  Tanks.take(P, 'he2', Tanks.amount(P, 'he2'));
+  const said = []; const n0 = sb.UI.notify; sb.UI.notify = function (m) { said.push(String(m)); return n0.apply(sb.UI, arguments); };
+  quiet(() => T._maybeSOS());
+  ok(T.STATE === 'event' && /Distress/.test(T.event?.title ?? ''), 'dry: the beacon answers');
+  T.event = null; T.STATE = 'map';
+  quiet(() => T._maybeSOS());
+  ok(said.some(m => /channel is dead.*Try again in \d+ s/.test(m)) && T.STATE === 'map', 'the same node at once: the channel is dead — and says when to try again');
+  for (let i = 0; i < 95; i++) quiet(() => T._updateMap(1));
+  T.STATE = 'map';
+  quiet(() => T._maybeSOS());
+  ok(T.STATE === 'event' && /Distress/.test(T.event?.title ?? ''), 'after a minute and a half somebody else answers (update259)');
+  T.event = null; T.STATE = 'map';
+
+  // ── 4. THE DARK DRIVE SAYS WHY ──
+  Tanks.add(P, 'he2', 5);
+  const eng = P.getSystem('engines'), re = P.getSystem('reactor');
+  const reDmg = re.damagedLevels;
+  re.damagedLevels = re.level; eng.power = 0; eng.desiredPower = 0;
+  const effE = eng.effectivePower; eng.effectivePower = () => 0;          // a Terra hand at the console would light one bar
+  const why1 = T._jumpRefusal();
+  eng.effectivePower = effE;
+  ok(/REACTOR is wrecked/.test(why1 ?? ''), `the reactor shot to pieces: the refusal sends a hand there (${why1})`);
+  re.damagedLevels = reDmg;
+  Tanks.take(P, 'he2', Tanks.amount(P, 'he2'));
+  eng.damagedLevels = 1;
+  const why2 = T._jumpRefusal();
+  ok(/dry and LEAKING: repair the ENGINES/.test(why2 ?? ''), `dry with the engines damaged: repair them first (${why2})`);
+  eng.damagedLevels = 0;
+  sb.UI.notify = n0;
+
+  // ── 5. ROBOTS DO NOT CREW A SHIP ──
+  const bot = Robots.make('terra', 'repair'); P.addCrew(bot);
+  const people = P.crew.filter(c => !c.isRobot);
+  people.forEach(c => { c._s = c.state; c.dead = true; c.state = 'dead'; });
+  ok(T._playerCrewAliveCount() === 0, 'every man dead and a robot standing: no crew — the run ends');
+  people.forEach(c => { c.dead = false; c.state = c._s; });
+  ok(T._playerCrewAliveCount() === people.length, '…and with the people back, the robot is not counted among them');
+
+  // ── 6. A DRAW ON THE GROUND ──
+  const E = new Ship('bunker_small', false, 850, 120);
+  E._allocateDefaultPower?.(); E.weapons = []; sb.makeEnemyCrew(2).forEach(c => E.addCrew(c));
+  P.weapons = [];
+  quiet(() => CombatManager.begin(P, E, 'normal'));
+  for (let i = 0; i < 60 && !CombatManager.isActive(); i++) quiet(() => CombatManager.update(0.05));
+  let t = 0;
+  while (t < 140 && CombatManager.isActive()) { quiet(() => CombatManager.update(0.5)); t += 0.5; }
+  ok(CombatManager.isActive(), `140 s of nothing on the ground: still on (${CombatManager.state})`);
+  E.hull -= 1;                                   // a hit lands: the clock starts over
+  for (let i = 0; i < 40; i++) quiet(() => CombatManager.update(0.5));
+  ok(CombatManager.isActive(), 'a hit on them starts the clock over');
+  t = 0;
+  while (t < 200 && CombatManager.isActive()) { quiet(() => CombatManager.update(0.5)); t += 0.5; }
+  ok(CombatManager.state === 'enemy_fled' && CombatManager.escapeWhy === 'ground', `then neither side hurting the other for ${CombatManager.GROUND_STALEMATE} s: it goes quiet (${CombatManager.state}, ${CombatManager.escapeWhy})`);
+  ok(/goes quiet — neither side can hurt the other/.test(read('js/game.js')), 'and the log says so — not „ESCAPED"');
+  quiet(() => CombatManager.end());
+
+  // ── 6b. AN EMPTY HELM BEHIND A DARK LIFT ──
+  {
+    const G2 = new Ship('enemy_geb', true, 80, 120);
+    G2._allocateDefaultPower(); Tanks.ensure?.(G2); Tanks.add(G2, 'he2', 5);
+    const keep = T.playerShip; T.playerShip = G2;
+    const why0 = T._jumpRefusal();
+    G2.elevators.shafts.forEach(x => { x.powered = false; });
+    const why1 = T._jumpRefusal();
+    G2.elevators.shafts.forEach(x => { x.powered = true; x.damaged = true; });
+    const why2 = T._jumpRefusal();
+    T.playerShip = keep;
+    ok(/^Nobody at the helm — put a hand/.test(why0 ?? ''), `nobody aboard her, lifts lit: put a hand in the cockpit (${why0})`);
+    ok(/LIFT is dark: free a bar of reactor power/.test(why1 ?? ''), 'a dark lift: the refusal says so — free a bar for the lifts');
+    ok(/LIFT is wrecked/.test(why2 ?? ''), '…and a wrecked one: repair it');
+  }
+
+  // ── 7. THE LIFT: FIRST COME, FIRST SERVED ──
+  {
+    const G = new Ship('enemy_geb', true, 80, 120);
+    const sh = G.elevators.shafts[0];
+    const [a, b] = sb.makeStartingCrew();
+    a._waypoints = [{ elevator: sh, srcFloor: 2, dstFloor: 1 }]; b._waypoints = [{ elevator: sh, srcFloor: 0, dstFloor: 1 }];
+    sh.waitFor(a, 2); sh.update(0.3); sh.waitFor(b, 0); sh.waitFor(a, 2);
+    ok(sh.firstCaller() === a, 'two at the landings: the one who came first has the lift');
+    sh.update(1.2); sh.waitFor(b, 0);
+    ok(sh.firstCaller() === b, '…unless he has not stood at his landing for a second (eating, bandaging): then the next');
+    sh.waitFor(a, 2); a.dead = true;
+    ok(sh.firstCaller() === b, 'a dead man holds no turn');
+    a.dead = false; sh.board(a, 1);
+    ok(!sh._queue.some(w => w.crew === a), 'aboard, he leaves the queue');
+    ok(/shaft\.cabinAt\(wp\.srcY, 14\) && \(first === this \|\| !first\)/.test(read('js/crew.js')), 'a man at the landing boards only on his turn — the cabin goes to the longest-waiting caller');
+  }
+
+  // ── 8. THE BOT ──
+  const ap = read('tools/autoplay.js');
+  ok(/function playContract\(mission, seed, strong = false\)/.test(ap) && /Math\.random = __rnd; Date\.now = \(\) => __clock\(\)/.test(ap), 'tools/autoplay.js plays whole contracts through the real game, seeded and on its own clock');
 })();
 
 // ============================================================

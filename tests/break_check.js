@@ -1675,8 +1675,8 @@ const BREAKS = [
   {
     name: '#68 nobody has to be at the helm',
     file: F('game.js'),
-    from: "    if (!at.length) return 'Nobody at the helm — put a hand in the cockpit.';",
-    to:   "    if (false) return 'Nobody at the helm — put a hand in the cockpit.';",
+    from: "    if (!at.length) {\n      /* …AND WHY NOBODY GETS THERE",
+    to:   "    if (false) {\n      /* …AND WHY NOBODY GETS THERE",
   },
   {
     name: '#68 a dead cockpit no longer stops a jump',
@@ -5052,8 +5052,8 @@ const BREAKS = [
   {
     name: '#90b the survivor counts as our crew on the wreck',
     file: F('game.js'),
-    from: '        c.isPlayer && !c._survivor && !c.dead && !c.dying).length;',
-    to:   '        c.isPlayer && !c.dead && !c.dying).length;',
+    from: '        c.isPlayer && !c._survivor && !c.dead && !c.dying && !c.isRobot).length;',
+    to:   '        c.isPlayer && !c.dead && !c.dying && !c.isRobot).length;',
   },
   {
     name: '#90b a wreck rolls to escape',
@@ -5977,7 +5977,7 @@ const BREAKS = [
   {
     name: "#93b the men outside are not counted",
     file: F("game.js"),
-    from: "    if (CombatManager.salvage) n += CombatManager.salvage.men.filter(m => m.phase !== 'muster' && !m.c.dead && !m.c.dying).length;",
+    from: "    if (CombatManager.salvage) n += CombatManager.salvage.men.filter(m => m.phase !== 'muster' && !m.c.dead && !m.c.dying && !m.c.isRobot).length;",
     to:   "",
   },
   {
@@ -6008,7 +6008,7 @@ const BREAKS = [
   {
     name: "#93b their jump hands our boarders back",
     file: F("game.js"),
-    from: "      _recoverBoarders({ aboardLost: 'carried off on the enemy ship' });",
+    from: "      _recoverBoarders(quietGround ? {} : { aboardLost: 'carried off on the enemy ship' });",
     to:   "      _recoverBoarders();",
   },
   {
@@ -12485,8 +12485,8 @@ const BREAKS = [
   {
     name: "#162 the passenger keeps the ship crewed",
     file: F("game.js"),
-    from: "      ? _playerShip.crew.filter(c => c.isPlayer && !c.dead && !c.dying && !c.isPassenger).length : 0;",
-    to:   "      ? _playerShip.crew.filter(c => c.isPlayer && !c.dead && !c.dying).length : 0;",
+    from: "      ? _playerShip.crew.filter(c => c.isPlayer && !c.dead && !c.dying && !c.isPassenger && !c.isRobot).length : 0;",
+    to:   "      ? _playerShip.crew.filter(c => c.isPlayer && !c.dead && !c.dying && !c.isRobot).length : 0;",
   },
   {
     name: "#162 a dead passenger bagged for our hill",
@@ -16758,8 +16758,8 @@ const BREAKS = [
   {
     name: "#208 the beacon forgets the air",
     file: F("game.js"),
-    from: "      result: canPay ? { scrap: -price, tankFuel: 4, ...(airFill ? { tankAir: airFill } : {}) } : { sosRetry: true },",
-    to:   "      result: canPay ? { scrap: -price, tankFuel: 4 } : { sosRetry: true },",
+    from: "      result: canPay ? { scrap: -price, tankFuel: 4, ...(airFill ? { tankAir: airFill } : {}), bundle: true } : { sosRetry: true },",
+    to:   "      result: canPay ? { scrap: -price, tankFuel: 4, bundle: true } : { sosRetry: true },",
   },
   {
     name: "#209 their shots thrown away when they flee",
@@ -18216,8 +18216,8 @@ const BREAKS = [
   {
     name: "#254 a fatality costs knowledge",
     file: F('finish.js'),
-    from: "  function recordCost(def) { return def?.kind === 'fatality' ? 0 : RECORD_COST; }",
-    to:   "  function recordCost(def) { return RECORD_COST; }",
+    from: "  function recordCost(def) { return 0; }",
+    to:   "  function recordCost(def) { return def?.kind === 'mercy' ? 0 : RECORD_COST; }",
   },
   {
     name: "#254 the mercy always a hand or a gun",
@@ -18331,8 +18331,8 @@ const BREAKS = [
   {
     name: "#253 he walks on the spot at the lift",
     file: F('crew.js'),
-    from: "      if (this._animState === 'walk') this._setAnim('idle');\n      if (shaft.cabinAt(wp.srcY, 14)) {",
-    to:   "      if (shaft.cabinAt(wp.srcY, 14)) {",
+    from: "      if (this._animState === 'walk') this._setAnim('idle');\n      /* in the queue, and the cabin goes to whoever has waited longest (update259) */",
+    to:   "      /* in the queue, and the cabin goes to whoever has waited longest (update259) */",
   },
   {
     name: "#253 the hangar links and SELL are back",
@@ -19141,6 +19141,66 @@ const BREAKS = [
     file: F('game.js'),
     from: "      UI.notify(`WARNING: ${String(BossManager.currentPhaseDef?.label ?? 'Apophis').toUpperCase()}`, 'alert');   // update258",
     to:   "      UI.notify('WARNING: APOPHIS', 'alert');",
+  },
+  {
+    name: "#259 a mercy costs knowledge again",
+    file: F('finish.js'),
+    from: "  function recordCost(def) { return 0; }",
+    to:   "  function recordCost(def) { return def?.kind === 'fatality' ? 0 : RECORD_COST; }",
+  },
+  {
+    name: "#259 a purchase is split into cards",
+    file: F('game.js'),
+    from: "    if (result.bundle || (typeof result.scrap === 'number' && result.scrap < 0)) return [];\n",
+    to:   "",
+  },
+  {
+    name: "#259 the beacon's channel stays dead",
+    file: F('game.js'),
+    from: "    if (!force && _sosNode !== null && _sosNode === here && _sosQuiet > 0) {",
+    to:   "    if (!force && _sosNode !== null && _sosNode === here) {",
+  },
+  {
+    name: "#259 the ground fight never ends",
+    file: F('combat.js'),
+    from: "      if (this._groundT >= this.GROUND_STALEMATE) {",
+    to:   "      if (false) {",
+  },
+  {
+    name: "#259 a robot crews the ship",
+    file: F('game.js'),
+    from: "      ? _playerShip.crew.filter(c => c.isPlayer && !c.dead && !c.dying && !c.isPassenger && !c.isRobot).length : 0;",
+    to:   "      ? _playerShip.crew.filter(c => c.isPlayer && !c.dead && !c.dying && !c.isPassenger).length : 0;",
+  },
+  {
+    name: "#259 the dark drive blames the power",
+    file: F('game.js'),
+    from: "    if (re && (re.workingLevels ?? 1) <= 0) return `${what} dark \u2014 the REACTOR is wrecked: send a hand into the reactor room to repair it.`;\n",
+    to:   "",
+  },
+  {
+    name: "#259 dry, and no word of the leak",
+    file: F('game.js'),
+    from: "    const leak = (_playerShip?.getSystem?.('engines')?.damagedLevels ?? 0) > 0;",
+    to:   "    const leak = false;",
+  },
+  {
+    name: "#259 the quiet ground reads as an escape",
+    file: F('game.js'),
+    from: "      UI.notify(quietGround ? `${who} goes quiet \u2014 neither side can hurt the other. We fly on; nothing to salvage.`\n                            : 'Enemy ship ESCAPED \u2014 no salvage\u2026', 'warn');",
+    to:   "      UI.notify('Enemy ship ESCAPED \u2014 no salvage\u2026', 'warn');",
+  },
+  {
+    name: "#259 the lift serves whoever asks in the frame it stops",
+    file: F('crew.js'),
+    from: "      } else if (!shaft._moving && !shaft.passenger && (first === this || !first)) {",
+    to:   "      } else if (!shaft._moving && !shaft.passenger) {",
+  },
+  {
+    name: "#259 the empty helm never names the dark lift",
+    file: F('game.js'),
+    from: "      if (lifts.some(s => s.powered === false && !s.damaged)) return 'Nobody at the helm — and a LIFT is dark: free a bar of reactor power for the lifts, or walk a hand up.';\n",
+    to:   "",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

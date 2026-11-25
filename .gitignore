@@ -5,3 +5,6 @@ glowne/
 desktop/node_modules/
 desktop/out/
 Claude outputs/MoonWars-Windows*.zip
+
+# autoplay (update259) — the bot's report, made fresh every run
+tools/autoplay-report.json

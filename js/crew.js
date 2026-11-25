@@ -1656,9 +1656,12 @@ class CrewMember {
       // Waiting at the shaft: summon cabin, board when it arrives
       /* …STANDING THERE (update253, jj 22.11: „załoga, jak czeka na windę, macha nogami, jakby chodziła — ma stać") */
       if (this._animState === 'walk') this._setAnim('idle');
-      if (shaft.cabinAt(wp.srcY, 14)) {
+      /* in the queue, and the cabin goes to whoever has waited longest (update259) */
+      if (shaft.waitFor) shaft.waitFor(this, wp.srcFloor);
+      const first = shaft.firstCaller ? shaft.firstCaller() : this;
+      if (shaft.cabinAt(wp.srcY, 14) && (first === this || !first)) {
         shaft.board(this, wp.dstFloor);
-      } else if (!shaft._moving && !shaft.passenger) {
+      } else if (!shaft._moving && !shaft.passenger && (first === this || !first)) {
         shaft.moveCabinTo(wp.srcFloor);
       }
       // If another crew member occupies the cabin we simply keep waiting.

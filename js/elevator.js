@@ -172,9 +172,32 @@ class ElevatorShaft {
     return freed;
   }
 
+  /* FIRST COME, FIRST SERVED (update259, autoplay: a man at the top landing waited 25 s and more while two hands
+   * below kept the cabin running between their two decks — whoever asked in the frame the cabin stopped got it, and
+   * the crew list always asked in the same order). Who is waiting, in the order they came; the cabin, when free, is
+   * called for the longest-waiting one still standing at a landing for it. */
+  waitFor(crew, floor) {
+    const now = this._clock ?? 0;
+    const had = (this._queue ?? []).find(w => w.crew === crew);
+    if (had) { had.floor = floor; had.at = now; return; }
+    (this._queue = this._queue ?? []).push({ crew, floor, at: now });
+  }
+  /** The caller whose turn it is: the oldest still waiting — dead, gone, riding, re-routed or not standing at the
+   *  landing for a second (eating, bandaging…) drop out of the turn, so nobody can hold the lift for the rest. */
+  firstCaller() {
+    const now = this._clock ?? 0;
+    this._queue = (this._queue ?? []).filter(w => {
+      const c = w.crew, wp = c?._waypoints?.[0];
+      return c && !c.dead && !c.down && !c._ridingShaft && wp?.elevator === this;
+    });
+    return this._queue.find(w => now - w.at <= 1.0)?.crew ?? null;
+  }
+  unwait(crew) { if (this._queue) this._queue = this._queue.filter(w => w.crew !== crew); }
+
   /** Crew boards the cabin; shaft drives them to dstFloor and releases. */
   board(crew, dstFloor) {
     if (!this.isUsable() || this.passenger) return false;
+    this.unwait(crew);
     this.passenger = crew;
     crew._ridingShaft = this;
     this.moveCabinTo(dstFloor);
@@ -216,6 +239,7 @@ class ElevatorShaft {
   isUsable() { return !this.damaged && this.powered !== false; }
 
   update(dt) {
+    this._clock = (this._clock ?? 0) + (dt ?? 0);          // the queue's clock (update259)
     /* NO POWER, NO MOTION (update90a). A dark lift stops where it is —
        between decks too — and whoever is inside stays inside until the
        power comes back; then the cabin carries on to where it was going.
