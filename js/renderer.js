@@ -5421,7 +5421,9 @@ const Renderer = (() => {
       }
       /* the house is the sign before his name: when the line is short of
          room it goes first, before the rank is cut (update141) */
-      const fullRank = `${F.rank} · ${F.lvl} · ${F.corp}`;
+      /* HIS BUILD (update260): THIN or HEAVY after the house; the middle says nothing */
+      const bld = (typeof CrewMember !== 'undefined' && CrewMember.buildOf && !rec?.isPet && !rec?.isRobot) ? CrewMember.buildOf(rec) : 'average';
+      const fullRank = `${F.rank} · ${F.lvl} · ${F.corp}${bld !== 'average' ? ` · ${bld.toUpperCase()}` : ''}`;
       const rankLine = (ctx.measureText?.(fullRank)?.width ?? 0) <= textRight - tx - hintW ? fullRank : `${F.rank} · ${F.lvl}`;
       ctx.fillText(_clipText(ctx, rankLine, textRight - tx - hintW), tx, y + 33);
       ctx.fillStyle = '#5f7893'; ctx.font = '9px Share Tech Mono, monospace';

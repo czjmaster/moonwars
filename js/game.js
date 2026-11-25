@@ -33,7 +33,7 @@ const Game = (() => {
 const MENU_ITEMS = ['ENTER BASE','OPTIONS','NEW GAME'];
 /* THE BUILD ON THE TITLE SCREEN (update254, jj 23.11): 0.<update> until the release (then 1.0.0). Raised with
    every package. */
-const GAME_VERSION = '0.259';
+const GAME_VERSION = '0.260';
 /* THE TITLE SCREEN (update123, jj: "co do menu zrób to, co napisałeś"):
    your own hull drifting past the Moon with its roof on, a line under
    ENTER BASE saying what is waiting in there, and NEW GAME — behind a

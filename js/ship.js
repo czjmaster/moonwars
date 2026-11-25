@@ -7398,6 +7398,7 @@ class Ship {
       const rate = c.hungerPerSec ? c.hungerPerSec() : 0;
       if (!rate) return;
       c.hunger = Utils.clamp((c.hunger ?? 100) - rate * dt, 0, 100);
+      if (!c.isPet && c.weightTick) c.weightTick(dt);              // the stomach makes the man (update260)
 
       if (c.hunger <= 0) {
         /* STARVATION IS A SLOPE, NOT A CLIFF. It takes the better

@@ -5115,8 +5115,8 @@ const BREAKS = [
   {
     name: '#91 the walk ignores the ship',
     file: F('crew.js'),
-    from: '                * (ship?.moveFactor ? ship.moveFactor(this) : 1);',
-    to:   '                * 1;',
+    from: '                * (ship?.moveFactor ? ship.moveFactor(this) : 1)\n',
+    to:   '                * 1\n',
   },
   {
     name: '#91 zero-G repairs at full speed',
@@ -19201,6 +19201,54 @@ const BREAKS = [
     file: F('game.js'),
     from: "      if (lifts.some(s => s.powered === false && !s.damaged)) return 'Nobody at the helm — and a LIFT is dark: free a bar of reactor power for the lifts, or walk a hand up.';\n",
     to:   "",
+  },
+  {
+    name: "#260 the stomach never moves the scale",
+    file: F('ship.js'),
+    from: "      if (!c.isPet && c.weightTick) c.weightTick(dt);              // the stomach makes the man (update260)\n",
+    to:   "",
+  },
+  {
+    name: "#260 a heavy man eats like any",
+    file: F('crew.js'),
+    from: "    return t ? (t[this.race] ?? t._default) * this.weightMul('APPETITE') : 0;     // a heavy man eats more (update260)",
+    to:   "    return t ? (t[this.race] ?? t._default) : 0;",
+  },
+  {
+    name: "#260 every build walks alike",
+    file: F('crew.js'),
+    from: "                * this.weightMul(ship?.zeroG ? 'ZERO_G' : 'PACE');          // his build (update260)",
+    to:   "                * 1;",
+  },
+  {
+    name: "#260 a heavy man knocked down like any",
+    file: F('crew.js'),
+    from: "    this._stunT = (this._stunT ?? 0) + Math.max(0, seconds) * this.weightMul('KNOCK');   // hard to knock a heavy man down (update260)",
+    to:   "    this._stunT = (this._stunT ?? 0) + Math.max(0, seconds);",
+  },
+  {
+    name: "#260 the save forgets his weight",
+    file: F('crew.js'),
+    from: "      ...(Number.isFinite(this.weight) ? { weight: Math.round(this.weight * 10) / 10 } : {}),       // update260\n",
+    to:   "",
+  },
+  {
+    name: "#260 every man drawn the same width",
+    file: F('crew.js'),
+    from: "      if (bw !== 1) { ctx.translate(this.x, this.y); ctx.scale(bw, 1); ctx.translate(-this.x, -this.y); }\n",
+    to:   "",
+  },
+  {
+    name: "#260 hunger takes nothing off",
+    file: F('crew.js'),
+    from: "            : h <= HUNGER.STARVING ? -WEIGHT.STARVE_LOSE\n            : h < HUNGER.HUNGRY ? -WEIGHT.LOSE : 0;",
+    to:   "            : 0;",
+  },
+  {
+    name: "#260 the card keeps quiet about his build",
+    file: F('renderer.js'),
+    from: "      const fullRank = `${F.rank} \u00b7 ${F.lvl} \u00b7 ${F.corp}${bld !== 'average' ? ` \u00b7 ${bld.toUpperCase()}` : ''}`;",
+    to:   "      const fullRank = `${F.rank} \u00b7 ${F.lvl} \u00b7 ${F.corp}`;",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

@@ -312,6 +312,27 @@ const CAT_NAMES = [
  *   · a black cat at 1/12 empties in twenty minutes, unchanged from
  *     update45, because that pace was measured against real flights.
  */
+/* ══ WEIGHT (update260, jj 20.11: „głodówka odchudza, ciągłe dokarmianie tuczy; chudy, średni i gruby z wadami
+ * i zaletami — np. gruby wolniejszy przy grawitacji, z większym pędem w nieważkości, trudniej go przewrócić, je
+ * więcej") ══ One number a man, 0–100 (50 the middle), saved with him. A full stomach (≥ STUFFED) puts it on slowly,
+ * a hungry one takes it off faster, starving faster still. Three builds:
+ *   THIN  (< 30): quicker on his feet under gravity, slower adrift, eats less — a knock holds him longer.
+ *   HEAVY (> 70): slower under gravity, more way on him in zero-G, eats more — hard to knock down.
+ * Drawn wider or narrower until the slim and heavy sheets come (jj: „grafika — chudy i gruby jako poprawka arkusza").
+ * Not the cat, not a robot. */
+const WEIGHT = {
+  START: 50, THIN: 30, HEAVY: 70,
+  STUFFED: 88,             // hunger at or above this: he puts it on
+  GAIN: 0.03,              // a second, stuffed  (≈ +1 every 33 s)
+  LOSE: 0.05,              // a second, hungry   (≈ −1 every 20 s)
+  STARVE_LOSE: 0.12,       // a second, starving
+  PACE:     { thin: 1.08, average: 1, heavy: 0.88 },   // walking, in gravity
+  ZERO_G:   { thin: 0.90, average: 1, heavy: 1.15 },   // drifting, without
+  APPETITE: { thin: 0.85, average: 1, heavy: 1.25 },
+  KNOCK:    { thin: 1.30, average: 1, heavy: 0.60 },   // how long a stun holds him
+  DRAW_W:   { thin: 0.90, average: 1, heavy: 1.14 },   // his width on the deck
+};
+
 const HUNGER = {
   /* ── WHAT A FULL STOMACH IS WORTH (update70) ───────────────
    *
@@ -562,6 +583,14 @@ class CrewMember {
     this.isRobot   = !!cfg.isRobot;
     this.robotKind = cfg.robotKind ?? null;
     this.energy    = this.isRobot ? (Number.isFinite(cfg.energy) ? cfg.energy : null) : undefined;
+    /* HIS WEIGHT (update260): saved; a new man is mostly middling, now and then lean or stout */
+    this.weight    = (this.isPet || this.isRobot) ? null
+                   : Number.isFinite(cfg.weight) ? cfg.weight
+                   : (() => {                              // from his face, not the dice: the same man every time
+                       const h = (k) => (((this.faceSeed | 0) * 2654435761 + k * 40503) >>> 0) % 10007 / 10007;
+                       const r = h(1), v = h(2);
+                       return r < 0.12 ? 22 + v * 6 : r > 0.88 ? 72 + v * 6 : 40 + v * 20;
+                     })();
     /* ── A PERSON WHO IS NOT CREW (update72) ───────────────────
      *
      * Two of them in the game and they are the same thing seen from
@@ -820,7 +849,33 @@ class CrewMember {
   hungerPerSec() {
     if (this.isRobot) return 0;                       // no stomach (update257)
     const t = (typeof HUNGER !== 'undefined') ? HUNGER.PER_SEC : null;
-    return t ? (t[this.race] ?? t._default) : 0;
+    return t ? (t[this.race] ?? t._default) * this.weightMul('APPETITE') : 0;     // a heavy man eats more (update260)
+  }
+
+  /** His build (update260): 'thin' | 'average' | 'heavy' — and what a table in WEIGHT gives him for it. */
+  build() { return CrewMember.buildOf(this); }
+  static buildOf(rec) {
+    const w = rec?.weight;
+    if (!Number.isFinite(w)) return 'average';
+    return w < WEIGHT.THIN ? 'thin' : w > WEIGHT.HEAVY ? 'heavy' : 'average';
+  }
+  weightMul(key) { return WEIGHT[key]?.[this.build()] ?? 1; }
+  /** Weight from his stomach, a second at a time (Ship.hungerTick). */
+  weightTick(dt) {
+    if (!Number.isFinite(this.weight) || this.dead || this.frozen) return;
+    const h = this.hunger ?? 100;
+    const d = h >= WEIGHT.STUFFED ? WEIGHT.GAIN
+            : h <= HUNGER.STARVING ? -WEIGHT.STARVE_LOSE
+            : h < HUNGER.HUNGRY ? -WEIGHT.LOSE : 0;
+    if (!d) return;
+    const was = this.build();
+    this.weight = Utils.clamp(this.weight + d * dt, 0, 100);
+    const now = this.build();
+    if (now !== was && this.isPlayer && typeof UI !== 'undefined') {
+      UI.notify(now === 'heavy' ? `${this.name} has put on weight — slower on his feet, harder to knock down.`
+              : now === 'thin' ? `${this.name} has grown thin — quick on his feet, easy to knock down.`
+              : `${this.name} is back to his old weight.`, 'info');
+    }
   }
 
   /**
@@ -1726,7 +1781,8 @@ class CrewMember {
     /* GRAVITY (update91): 70% in zero-G; a casualty on his shoulders 50%
        in gravity and 120% without — Ship.moveFactor, GRAVITY_CONFIG. */
     const SPEED = (60 + this.getSkillLevel('engines') * 10) * (1 + this._capBonus().speed)
-                * (ship?.moveFactor ? ship.moveFactor(this) : 1);
+                * (ship?.moveFactor ? ship.moveFactor(this) : 1)
+                * this.weightMul(ship?.zeroG ? 'ZERO_G' : 'PACE');          // his build (update260)
 
     if (d > 2) {
       const step = Math.min(SPEED * dt, d);
@@ -2073,7 +2129,7 @@ class CrewMember {
   /** Knocked senseless for `seconds`. Stacks. */
   stun(seconds = 1) {
     if (this.dead) return false;
-    this._stunT = (this._stunT ?? 0) + Math.max(0, seconds);
+    this._stunT = (this._stunT ?? 0) + Math.max(0, seconds) * this.weightMul('KNOCK');   // hard to knock a heavy man down (update260)
     this._waypoints = [];
     return true;
   }
@@ -2401,7 +2457,12 @@ class CrewMember {
     } else if (this.isRobot && typeof Robots !== 'undefined') {
       ctx.restore(); ctx.save();                                                     // it faces by its tool, not a flip
       Robots.drawBody(ctx, this);
-    } else this.anim.draw(ctx, this.x, this.y - (this.isPet ? CrewMember.CAT_FEET : 0), 32, 32);
+    } else {
+      /* HIS BUILD (update260): wider or narrower about his feet, until the slim and heavy sheets come */
+      const bw = this.isPet ? 1 : this.weightMul('DRAW_W');
+      if (bw !== 1) { ctx.translate(this.x, this.y); ctx.scale(bw, 1); ctx.translate(-this.x, -this.y); }
+      this.anim.draw(ctx, this.x, this.y - (this.isPet ? CrewMember.CAT_FEET : 0), 32, 32);
+    }
 
     ctx.restore();
     /* His weapon, his shot and his charges are NOT drawn here (update174):
@@ -2632,6 +2693,7 @@ class CrewMember {
       sidearmRarity: this.sidearmRarity ?? null,            // update178
       skills: Utils.deepClone(this.skills),
       ...(this.isRobot ? { isRobot: true, robotKind: this.robotKind, energy: this.energy } : {}),   // update257
+      ...(Number.isFinite(this.weight) ? { weight: Math.round(this.weight * 10) / 10 } : {}),       // update260
     };
   }
 

@@ -25424,6 +25424,7 @@ section('275. Gravity rides on the engines: zero-G walking, repairs, carrying, f
         const sh = hull();
         if (zg) engOff(sh);
         const a = man(sh, 'r_engines', 'Walker');
+        a.weight = 50;                                   // update260: a middling man — his build has its own test
         if (carry) {
           const body = man(sh, 'r_engines', 'Down');
           body.state = 'injured'; body.hp = 5; body._bandaged = true;
@@ -47537,6 +47538,76 @@ section('445. jj 25.11 (259): MERCY is free; what the autoplay found — a purch
   // ── 8. THE BOT ──
   const ap = read('tools/autoplay.js');
   ok(/function playContract\(mission, seed, strong = false\)/.test(ap) && /Math\.random = __rnd; Date\.now = \(\) => __clock\(\)/.test(ap), 'tools/autoplay.js plays whole contracts through the real game, seeded and on its own clock');
+})();
+
+// ============================================================
+section('446. jj 20.11 / 25.11 (260): weight — a full stomach puts it on, hunger takes it off; thin, average, heavy, each with its pace, appetite and footing');
+// ============================================================
+(function testUpdate260Weight() {
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const sb = loadEngine();
+  const { CrewMember, WEIGHT, HUNGER, Ship, Robots } = sb;
+  const { makeCtx } = require('./harness.js');
+
+  // ── 1. THE NUMBER AND THE BUILDS ──
+  ok(WEIGHT.THIN === 30 && WEIGHT.HEAVY === 70 && WEIGHT.START === 50, 'one number 0–100: thin under 30, heavy over 70');
+  ok(CrewMember.buildOf({ weight: 25 }) === 'thin' && CrewMember.buildOf({ weight: 50 }) === 'average' && CrewMember.buildOf({ weight: 75 }) === 'heavy' && CrewMember.buildOf({}) === 'average', 'three builds');
+  const men = Array.from({ length: 400 }, () => new CrewMember({}));
+  const thin = men.filter(m => m.build() === 'thin').length, heavy = men.filter(m => m.build() === 'heavy').length;
+  ok(thin > 20 && thin < 90 && heavy > 20 && heavy < 90, `a new man is mostly middling — now and then lean (${thin}/400) or stout (${heavy}/400)`);
+  const twin = new CrewMember({ faceSeed: men[0].faceSeed, name: 'Twin' });
+  ok(twin.weight === men[0].weight, 'from his face, not the dice: the same seed, the same weight');
+  const cat = sb.makeCat?.('black'), bot = Robots.make('terra', 'repair');
+  ok((!cat || cat.weight == null) && bot.weight == null && bot.build() === 'average', 'not the cat, not a robot');
+  const back = CrewMember.deserialise(JSON.parse(JSON.stringify(new CrewMember({ weight: 77.3 }).serialise())));
+  ok(back.weight === 77.3 && back.build() === 'heavy', 'saved and loaded with him');
+
+  // ── 2. THE STOMACH MAKES THE MAN ──
+  const said = []; const n0 = sb.UI.notify; sb.UI.notify = function (m) { said.push(String(m)); return n0.apply(sb.UI, arguments); };
+  const g = new CrewMember({ name: 'Gus', weight: 60, isPlayer: true });
+  g.hunger = 95;
+  for (let i = 0; i < 400; i++) g.weightTick(1);
+  ok(g.weight > 70 && g.build() === 'heavy' && said.some(m => /Gus has put on weight/.test(m)), `stuffed for minutes: he puts it on (${g.weight.toFixed(1)}) — and the log says so`);
+  g.hunger = 60; const w0 = g.weight; g.weightTick(60);
+  ok(g.weight === w0, 'a man neither stuffed nor hungry keeps his weight');
+  g.hunger = 30; for (let i = 0; i < 300; i++) g.weightTick(1);
+  ok(g.weight < w0 - 12, `hungry, he loses it faster (${w0.toFixed(1)} → ${g.weight.toFixed(1)})`);
+  g.hunger = HUNGER.STARVING - 1; const w1 = g.weight; g.weightTick(10);
+  ok(w1 - g.weight > WEIGHT.LOSE * 10, 'starving, faster still');
+  sb.UI.notify = n0;
+  ok(/if \(!c\.isPet && c\.weightTick\) c\.weightTick\(dt\);/.test(read('js/ship.js')), 'the ship\'s stomach loop runs it, on the map and in a fight');
+
+  // ── 3. WHAT IT DOES ──
+  const mk = (w) => new CrewMember({ race: 'aquarius', weight: w });
+  ok(Math.abs(mk(80).hungerPerSec() / mk(50).hungerPerSec() - 1.25) < 1e-9 && Math.abs(mk(20).hungerPerSec() / mk(50).hungerPerSec() - 0.85) < 1e-9, 'a heavy man eats a quarter more, a thin one less');
+  const st = (w) => { const c = mk(w); c.stun(1); return c._stunT; };
+  ok(st(80) < st(50) && st(20) > st(50), `a heavy man is hard to knock down, a thin one easy (${st(80)} / ${st(50)} / ${st(20)} s)`);
+  const walk = (w, zg) => {
+    const sh = new Ship('frigate', true, 80, 120);
+    sh._allocateDefaultPower();
+    if (zg) { const e = sh.getSystem('engines'); e.power = 0; e.desiredPower = 0; e.effectivePower = () => 0; }
+    const c = mk(w); sh.addCrew(c);
+    const r0 = sh.rooms[0], r1 = sh.rooms.find(r => r.floor === r0.floor && r.id !== r0.id && Math.abs(r.cx - r0.cx) > 60);
+    c.roomId = r0.id; [c.x, c.y] = sh.stationSlot(r0, 1); c.homeRoomId = r1.id;
+    c.moveToOnShip(sh, r1.cx, c.y);
+    const x0 = c.x;
+    for (let i = 0; i < 10; i++) sh.update(0.05);
+    return { d: Math.abs(c.x - x0), zg: !!sh.zeroG };
+  };
+  const a = walk(50, false), h = walk(80, false), t = walk(20, false);
+  ok(Math.abs(h.d / a.d - 0.88) < 0.04 && Math.abs(t.d / a.d - 1.08) < 0.04, `under gravity a heavy man is slower, a thin one quicker (${(h.d / a.d).toFixed(2)} / ${(t.d / a.d).toFixed(2)})`);
+  const az = walk(50, true), hz = walk(80, true);
+  ok(az.zg && Math.abs(hz.d / az.d - 1.15) < 0.05, `adrift, the heavy man has the way on him (${(hz.d / az.d).toFixed(2)})`);
+
+  // ── 4. THE PICTURE AND THE CARD ──
+  const calls = [];
+  const ctx = makeCtx(); const sc = ctx.scale; ctx.scale = function (x, y) { calls.push([x, y]); return sc?.apply(this, arguments); };
+  const fat = mk(80); fat.x = 100; fat.y = 100; fat.draw(ctx);
+  ok(calls.some(([x, y]) => Math.abs(x - 1.14) < 1e-9 && y === 1), 'a heavy man is drawn wider about his feet');
+  const texts = []; const ctx2 = makeCtx(); ctx2.fillText = function (txt) { texts.push(String(txt)); };
+  sb.Renderer.drawCrewCard(ctx2, mk(80), 0, 0, 'M', { w: 380, h: 66 });
+  ok(texts.some(x => /HEAVY/.test(x)), 'his card says HEAVY after his house');
 })();
 
 // ============================================================
