@@ -33,7 +33,7 @@ const Game = (() => {
 const MENU_ITEMS = ['ENTER BASE','OPTIONS','NEW GAME'];
 /* THE BUILD ON THE TITLE SCREEN (update254, jj 23.11): 0.<update> until the release (then 1.0.0). Raised with
    every package. */
-const GAME_VERSION = '0.257';
+const GAME_VERSION = '0.258';
 /* THE TITLE SCREEN (update123, jj: "co do menu zrób to, co napisałeś"):
    your own hull drifting past the Moon with its roof on, a line under
    ENTER BASE saying what is waiting in there, and NEW GAME — behind a
@@ -1802,7 +1802,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   function _canRetreat() {
     if (_needCommander('RETREAT')) return false;
     if (BossManager.isActive) {
-      UI.notify('Cannot escape Apophis!', 'alert');
+      UI.notify(`Cannot escape ${BossManager.currentPhaseDef?.label ?? 'the boss'}!`, 'alert');
       return false;
     }
     const why = _jumpRefusal();
@@ -4279,7 +4279,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       CombatManager.begin(_playerShip, _enemyShip, 'boss');
       if (typeof JumpScene !== 'undefined') JumpScene.arrive(_playerShip, _enemyShip);   // update118
       Audio.resume(); Audio.playMusic('boss');
-      UI.notify('WARNING: APOPHIS', 'alert');
+      UI.notify(`WARNING: ${String(BossManager.currentPhaseDef?.label ?? 'Apophis').toUpperCase()}`, 'alert');   // update258
     } else {
       UI.notify('Path clear.', 'info');
     }

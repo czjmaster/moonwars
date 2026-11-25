@@ -145,7 +145,9 @@ const Robots = (() => {
     pegasus:  { w: 11, h: 18, head: 'mast' },
   };
   function body(g, c, x, y, t, lying, s = 1) {
-    const sh = SHAPE[c.race] ?? SHAPE.aquarius, col = (typeof crewColor === 'function') ? crewColor(c) : '#4db8ff';
+    const sh = SHAPE[c.race] ?? SHAPE.aquarius;
+    const col = c.isPlayer === false ? (CrewMember.ENEMY_COLOR ?? '#ff2d44')            // theirs in red (update258)
+              : (typeof crewColor === 'function') ? crewColor(c) : '#4db8ff';
     const metal = '#8a93a3', dark = '#4a5060', lite = '#c8ced8';
     g.save();
     g.translate(x, y);
@@ -195,7 +197,7 @@ const Robots = (() => {
   /** Its card picture (CrewArt.portraitCanvas). */
   const _faces = new Map();
   function portraitCanvas(c, size = 96) {
-    const key = `${c.race}|${c.robotKind}|${size}`;
+    const key = `${c.race}|${c.robotKind}|${size}|${c.isPlayer === false ? 'e' : 'p'}`;
     if (_faces.has(key)) return _faces.get(key);
     let cv = null;
     try {

@@ -92,9 +92,9 @@ const MISSIONS = {
     id: 'patrol',
     label: 'Border Patrol',
     sectors: 2,
-    boss: 'elite',
+    boss: 'carrier',                   // update258: Rakh's carrier, the easy one
     ccBonus: 60,
-    blurb: 'Two sectors, then break a warlord’s escort. Short and survivable.',
+    blurb: 'Two sectors, then break a warlord’s carrier. Short and survivable.',
   },
   mothership: {
     id: 'mothership',
@@ -142,7 +142,7 @@ const MISSIONS = {
     id: 'runners',
     label: 'No Questions Asked',
     sectors: 2,
-    boss: 'elite',
+    boss: 'carrier',               // update258
     ccBonus: 160,                // this is why anybody takes it
     karmaGate: 'low',
     /* WHAT IT COSTS. `ROBBERY` is the table's entry for taking from

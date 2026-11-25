@@ -30,6 +30,28 @@ const BOSS_VARIANTS = {
     phases: BOSS_PHASES,
     reward: 150,
   },
+  /* THE SECTOR-2 BOSS: AN EASY CARRIER (update258, jj 22.11: „boss sektora 2 — lotniskowiec, łatwy: 1 działko,
+     1 myśliwiec, kapitan; załoga z bronią od metalu do helu (rzadko)" + 25.11: z robotem). Terra's GEB with one
+     gun, one fighter in her bay, a captain in the chair, a BASTION repair robot below — and her people only now and
+     then armed, at ordinary rarity: not the best of the sector like Apophis's. Border Patrol and No Questions Asked
+     end at her. (`elite`, the old warlord's gunship, stays for a run saved before 258.) */
+  carrier: {
+    layout: 'enemy_geb',
+    reward: 90,
+    phases: [{
+      phase: 1,
+      label: 'Rakh’s Carrier',
+      hullMax: 22,
+      weapons: ['laser_basic'],
+      crew: 4,
+      armChance: 0.35,                 // „rzadko": about one hand in three carries a weapon
+      plainRarity: true,               // metal … helium as anyone rolls it, no boss step up
+      robots: [['terra', 'repair']],
+      difficulty: 'boss',
+      music: 'boss',
+      taunt: 'My fighter will find you first, hauler.',
+    }],
+  },
   elite: {
     layout: 'enemy_gunship',
     reward: 90,
@@ -96,9 +118,21 @@ class BossBattle {
 
     // The boss is deep in the run by definition — his people are the
     // best the sector produces (update55).
-    const crew = makeEnemyCrew(def.crew, this._ship.layoutKey,
-                               (typeof Save !== 'undefined' ? (Save.getRun()?.sector ?? 5) : 5),
+    const sector = (typeof Save !== 'undefined' ? (Save.getRun()?.sector ?? 5) : 5);
+    const crew = makeEnemyCrew(def.crew, this._ship.layoutKey, sector,
                                { boss: true });             // his people are armed (update174)
+    /* …ONLY NOW AND THEN, on an easy boss (update258): a weapon for about one in three, at ordinary rarity */
+    if (def.armChance != null && typeof CrewArms !== 'undefined') {
+      crew.forEach(c => {
+        const armed = Math.random() < def.armChance;
+        c.sidearm = armed ? CrewArms.rollEnemy(sector, true) : null;
+        c.sidearmRarity = armed ? (CrewArms.rollEnemyRarity?.(!def.plainRarity) ?? null) : null;
+      });
+    }
+    /* …AND HER ROBOTS (update258) */
+    if (def.robots && typeof Robots !== 'undefined') {
+      def.robots.forEach(([race, kind]) => crew.push(Robots.make(race, kind, { isPlayer: false })));
+    }
     crew.forEach(c => this._ship.addCrew(c));
     this._ship.assignStations();
     /* AND A MEDICINE CHEST (update93a): his medics play by the same rules

@@ -19100,6 +19100,48 @@ const BREAKS = [
     from: "    if (c._charging && room && c.homeRoomId !== room.id) { c._charging = false; c._chargeCd = ROBOT.OVERRIDE_CD; return; }\n",
     to:   "",
   },
+  {
+    name: "#258 Border Patrol ends at the old gunship",
+    file: F('base.js'),
+    from: "    boss: 'carrier',                   // update258: Rakh's carrier, the easy one",
+    to:   "    boss: 'elite',",
+  },
+  {
+    name: "#258 no robot aboard her",
+    file: F('boss.js'),
+    from: "      def.robots.forEach(([race, kind]) => crew.push(Robots.make(race, kind, { isPlayer: false })));\n",
+    to:   "",
+  },
+  {
+    name: "#258 every hand of hers armed",
+    file: F('boss.js'),
+    from: "    if (def.armChance != null && typeof CrewArms !== 'undefined') {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#258 her people a rarity better",
+    file: F('boss.js'),
+    from: "rollEnemyRarity?.(!def.plainRarity)",
+    to:   "rollEnemyRarity?.(true)",
+  },
+  {
+    name: "#258 two guns on the easy boss",
+    file: F('boss.js'),
+    from: "      weapons: ['laser_basic'],\n      crew: 4,",
+    to:   "      weapons: ['laser_basic', 'laser_burst'],\n      crew: 4,",
+  },
+  {
+    name: "#258 their robot in our colours",
+    file: F('robots.js'),
+    from: "    const col = c.isPlayer === false ? (CrewMember.ENEMY_COLOR ?? '#ff2d44')            // theirs in red (update258)\n              : (typeof crewColor",
+    to:   "    const col = (typeof crewColor",
+  },
+  {
+    name: "#258 the warning always says Apophis",
+    file: F('game.js'),
+    from: "      UI.notify(`WARNING: ${String(BossManager.currentPhaseDef?.label ?? 'Apophis').toUpperCase()}`, 'alert');   // update258",
+    to:   "      UI.notify('WARNING: APOPHIS', 'alert');",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

@@ -18545,7 +18545,7 @@ section('245. Two contracts at the edges of karma');
        `delivering the crates is what costs him (20 → ${cap.karma})`);
     ok(dirty.ccBonus > MISSIONS.mothership.ccBonus,
        `and it pays better than the longest honest job (${dirty.ccBonus} vs ${MISSIONS.mothership.ccBonus})`);
-    ok(dirty.boss === 'elite', 'with a warlord\'s escort at the end of it');
+    ok(dirty.boss === 'carrier', 'with a warlord\'s carrier at the end of it (update258)');
   }
 
   Commander.setActive(null);
@@ -47347,6 +47347,65 @@ section('443. jj 22.11 22:27 (257): robots — four makers, three trades; no air
   // ── 5. IN THE FIGHTER ──
   ok(/c\.race !== 'pegasus' && !c\.isRobot/.test(read('js/fighters.js')), 'a robot pilot does not choke in her when her O₂ module is out');
   ok(/'robots'/.test(read('tests/harness.js')) && /js\/robots\.js/.test(read('index.html')), 'loaded in the page and the tests');
+})();
+
+// ============================================================
+section('444. jj 22.11 22:27 (258): the sector-2 boss — an easy carrier: one gun, one fighter, a captain, a robot, her people only now and then armed');
+// ============================================================
+(function testUpdate258Carrier() {
+  const quiet = (fn) => { const log = console.log, warn = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = log; console.warn = warn; } };
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const sb = loadEngine();
+  const { BossManager, BOSS_VARIANTS, MISSIONS, Fighters, Save, CombatManager, Ship, Robots } = sb;
+  Save.load(); Save.startRun(); Save.updateRun({ sector: 2 });
+
+  ok(MISSIONS.patrol.boss === 'carrier' && MISSIONS.runners.boss === 'carrier' && MISSIONS.mothership.boss === 'station',
+     'both two-sector contracts end at the carrier; Apophis stays the three-sector boss');
+  ok(!!BOSS_VARIANTS.elite, 'the old gunship stays for a run saved before 258');
+  BossManager.reset('carrier');
+  const boss = quiet(() => BossManager.start(0, 850, 120));
+  const def = BossManager.currentPhaseDef;
+  ok(boss.layoutKey === 'enemy_geb' && def.label === 'Rakh’s Carrier', `she is Terra's Geb: ${def.label}`);
+  ok(boss.weapons.filter(Boolean).length === 1, 'one gun');
+  const bays = Fighters.hangars(boss);
+  ok(bays.length === 1 && !Fighters.isLost(bays[0]), 'one fighter in her bay');
+  ok(!!boss.commander, 'a captain in the chair');
+  const bots = boss.crew.filter(c => c.isRobot);
+  ok(bots.length === 1 && bots[0].robotKind === 'repair' && bots[0].race === 'terra' && bots[0].isPlayer === false, 'and a BASTION repair robot, hers');
+  ok(boss.hullMax === 22 && boss.hullMax < BOSS_VARIANTS.station.phases[0].hullMax, `easy: ${boss.hullMax} hull, less than Apophis`);
+
+  /* her people only now and then armed (over many builds) */
+  let men = 0, armed = 0;
+  for (let i = 0; i < 40; i++) {
+    BossManager.reset('carrier');
+    const b = quiet(() => BossManager.start(0, 850, 120));
+    b.crew.filter(c => !c.isRobot).forEach(c => { men++; if (c.sidearm) armed++; });
+  }
+  const frac = armed / men;
+  ok(frac > 0.15 && frac < 0.6, `about one hand in three carries a weapon (${Math.round(frac * 100)}%)`);
+  const B = read('js/boss.js');
+  ok(/rollEnemyRarity\?\.\(!def\.plainRarity\)/.test(B), 'at ordinary rarity — no boss step up');
+
+  /* the fight: her fighter comes out */
+  BossManager.reset('carrier');
+  const E = quiet(() => BossManager.start(0, 850, 120));
+  const P = new Ship('frigate', true, 80, 120);
+  P._allocateDefaultPower(); sb.makeStartingCrew().forEach(c => P.addCrew(c)); P.assignStations(); P.weapons = [];
+  E.weapons = [];
+  quiet(() => CombatManager.begin(P, E, 'boss'));
+  let out = false;
+  for (let i = 0; i < 1600 && !out; i++) { quiet(() => CombatManager.update(0.05)); out = Fighters.away(E).length > 0 || ['out', 'returning'].includes(Fighters.of(Fighters.hangars(E)[0]).state); }
+  ok(out, 'her fighter launches at us');
+  quiet(() => CombatManager.end());
+
+  /* their robot in red */
+  const { makeCtx } = require('./harness.js');
+  const calls = [];
+  const ctx = makeCtx(); const fr = ctx.fillRect; ctx.fillRect = function (...a) { calls.push(this.fillStyle); return fr?.apply(this, a); };
+  Robots.drawBody(ctx, bots[0]);
+  ok(calls.includes(sb.CrewMember.ENEMY_COLOR), 'theirs wears red');
+  ok(/WARNING: \$\{String\(BossManager\.currentPhaseDef/.test(read('js/game.js')) && /Cannot escape \$\{BossManager/.test(read('js/game.js')), 'the warning and the no-escape line name the boss you face');
 })();
 
 // ============================================================
