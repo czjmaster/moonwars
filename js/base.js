@@ -62,7 +62,7 @@ const SHIP_CATALOG = {
   enemy_geb: {
     key: 'enemy_geb', cost: 560,
     label: 'Geb',
-    blurb: 'The Terra carrier: a fighter in her hangar (a man at its console flies her), two free bays to fit, three decks, one gun.',
+    blurb: 'The Terra carrier: a fighter in her hangar and an operator robot for its launch console, two free bays to fit, three decks, one gun.',
   },
 };
 
@@ -938,6 +938,14 @@ const Base = (() => {
     spend(def.cost);
     b.ships.push({ key, data: null });
     _commit();
+    /* A CARRIER COMES WITH HER FIGHTER AND A ROBOT (update263, jj 26.11: „dodaj robota jak ktoś kupi lotniskowca — na
+       wyposażeniu samolot i robot"): an operator unit of her maker for the launch console, into the barracks. */
+    if (typeof SHIP_LAYOUTS !== 'undefined' && SHIP_LAYOUTS[key]?.carrier && typeof Robots !== 'undefined') {
+      const race = SHIP_LAYOUTS[key].race ?? 'terra';
+      const bot = Robots.make(Robots.MODELS[race] ? race : 'terra', 'operator', { serial: 10 + b.ships.length });
+      if (addCrew(bot.serialise())) return { ok: true, robot: bot, message: `${def.label} delivered — her fighter in the bay and ${bot.name}, an operator unit for the launch console, in the barracks.` };
+      return { ok: true, message: `${def.label} delivered with her fighter — no bunk for her robot (build more barracks).` };
+    }
     return { ok: true, message: `${def.label} delivered to the hangar.` };
   }
 

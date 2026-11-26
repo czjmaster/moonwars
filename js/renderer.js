@@ -1527,7 +1527,7 @@ const Renderer = (() => {
        the longer word runs off the end of its own button. */
     const LABEL = { treat: 'TREAT', eject: 'EJECT', bag: 'BAG', feed: 'FEED',
                     cell: 'CELL', freeze: 'FREEZE', thaw: 'THAW', medkit: 'MEDKIT',
-                    heal: 'HEAL', search: 'SEARCH' };
+                    heal: 'HEAL', search: 'SEARCH', board: 'BOARD', fout: 'OUT' };   // the fighter's two (update263)
     /* HEAL blue, FEED green when they are live (update104, jj): the two
        sat side by side, FEED grey like a dead button and HEAL the same
        green as TREAT. */
@@ -1537,7 +1537,7 @@ const Renderer = (() => {
                     heal: '#4db8ff',
                     /* SEARCH had no colour and drew in whatever was left in the brush — the
                        dark of a dead button (update208, jj: "napis był jakby nieaktywny, ciemny") */
-                    search: '#ffd780' };
+                    search: '#ffd780', board: '#1aff8c', fout: '#ffb020' };
     ctx.textAlign = 'left';
     R.items.forEach(it => {
       const why = refusal ? refusal(it.act) : null;
@@ -3031,7 +3031,7 @@ const Renderer = (() => {
     if (clickable) {
       _powerClickZones.push({
         x: mid - g.icon / 2, y: cTop, w: g.icon, h: g.icon,
-        ...(sys.type === 'cloaking'
+        ...(sys.type === 'cloaking' || (sys.type === 'hangar' && ship.isPlayer && typeof Fighters !== 'undefined')   // the hangar's icon is her order (update263)
           ? { sysActivateIndex: ship.systems.indexOf(sys) }
           : { sysToggleIndex: ship.systems.indexOf(sys) }),
       });
@@ -3091,9 +3091,14 @@ const Renderer = (() => {
   }
 
   /** A module's short name — or what the cloak has to say instead. */
-  function _sysLabel(sys, wsys) {
+  function _sysLabel(sys, wsys, ship = null) {
     let text = SYS_SHORT[sys.type] ?? sys.label.slice(0, 4).toUpperCase();
     let col = '#7a90a8';
+    /* THE HANGAR SAYS WHAT A CLICK ON IT DOES (update263): LAUNCH · RECALL · HOLD — or why not (NO PILOT, 2 PWR, NO OP) */
+    if (sys.type === 'hangar' && ship?.isPlayer && typeof Fighters !== 'undefined') {
+      const a = Fighters.iconAct(ship, sys);
+      if (a) return { text: a.text, col: a.col };
+    }
     if (sys.type === 'weapons' && wsys.length > 1) text = `W${wsys.indexOf(sys) + 1}`;
     if (sys.type === 'cloaking') {
       if (sys.cloakActive) { text = `${Math.ceil(sys.cloakTimer)}s`; col = '#cc44ff'; }
@@ -3165,7 +3170,7 @@ const Renderer = (() => {
     const wsys = systems.filter(s => s.type === 'weapons');
     let fBot = cTop + P.icon + 4 + P.maxPips * (P.pipH + P.pipGap) + 4;
     systems.forEach((sys, k) => {
-      fBot = _sysColumn(ctx, ship, sys, x0 + 12 + k * (P.colW + P.gap), cTop, P, true, _sysLabel(sys, wsys));
+      fBot = _sysColumn(ctx, ship, sys, x0 + 12 + k * (P.colW + P.gap), cTop, P, true, _sysLabel(sys, wsys, ship));
     });
     const bar = _sysReactorRow(ctx, ship, x0, fBot + 15, x0 + 12 + colsW, C ? LW : W, true);   // its numbers at the columns' edge (update196)
     _reactorBarRect = bar;
@@ -3542,6 +3547,10 @@ const Renderer = (() => {
         ctx.font = '8px Share Tech Mono, monospace';
         ctx.fillText(subLabel, ix, cy + iconR + 22);
       }
+      if (sys.type === 'hangar' && ship.isPlayer && typeof Fighters !== 'undefined') {   // her order, like the cloak's (update263)
+        const a = Fighters.iconAct(ship, sys);
+        if (a) { ctx.fillStyle = a.col; ctx.font = '8px Share Tech Mono, monospace'; ctx.fillText(a.text, ix, cy + iconR + 22); }
+      }
 
       // Power pips ABOVE icon (click to add/remove)
       // Damaged levels render as RED squares at the top of the stack.
@@ -3621,7 +3630,7 @@ const Renderer = (() => {
       // (its power is still set with the pips above it).
       _powerClickZones.push({
         x: ix - iconR, y: cy - iconR, w: iconR * 2, h: iconR * 2,
-        ...(sys.type === 'cloaking'
+        ...(sys.type === 'cloaking' || (sys.type === 'hangar' && ship.isPlayer && typeof Fighters !== 'undefined')   // the hangar's icon is her order (update263)
           ? { sysActivateIndex: ship.systems.indexOf(sys) }
           : { sysToggleIndex: ship.systems.indexOf(sys) }),
       });

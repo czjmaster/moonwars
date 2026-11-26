@@ -47172,10 +47172,9 @@ section('442. jj 22.11 22:27 (256): the fighter on orders — BOARD a selected h
   pilot._boardFighter = room.id; place(pilot, 1);
   run(4);
   ok(f.pilot === pilot && !player.crew.includes(pilot) && pilot._inFighter, 'the hand sent to her climbs in at the bay');
-  const btn = Fighters.buttons(player).map(b => b.label).join(',');
-  ok(btn === 'LAUNCH,PILOT OUT', `her buttons on the bay's wall: ${btn}`);
-  const b0 = Fighters.buttons(player)[0];
-  ok(Fighters.buttonAt(player, b0.x + 2, b0.y + 2)?.act === 'launch', 'a click on LAUNCH is the order');
+  /* update263: no buttons on the bay's wall — the hangar's icon on the power bar is her order */
+  ok(Fighters.buttons(player).length === 0, 'no buttons in the module any more (update263)');
+  ok(Fighters.iconAct(player, hs, true, enemy)?.act === 'launch' && Fighters.iconAct(player, hs, true, enemy).text === 'LAUNCH', 'the hangar\'s icon says LAUNCH, and a click on it is the order');
   /* no console man: no launch */
   op.roomId = player.rooms.find(r => r.id !== room.id).id; op.homeRoomId = op.roomId;
   ok(/console/.test(Fighters.order(player, hs, 'launch', true, enemy).message), 'nobody at the launch console: nobody opens the lift');
@@ -47208,7 +47207,7 @@ section('442. jj 22.11 22:27 (256): the fighter on orders — BOARD a selected h
   ok(f.state === 'out', 'still out when the fight ends');
   quiet(() => CombatManager.end());
   ok(f.state === 'outside' && f.pilot === pilot && Fighters.away(player).length === 1, 'the fight over, she is OUTSIDE with her pilot — not home by magic');
-  ok(Fighters.buttons(player).some(b => b.act === 'recall'), 'RECALL on the bay');
+  ok(Fighters.iconAct(player, hs, false, null)?.act === 'recall', 'RECALL on the hangar\'s icon');
   Fighters.order(player, hs, 'recall');
   for (let i = 0; i < 120; i++) { [op.x, op.y] = player.stationSlot(room, 0); op.roomId = room.id; Fighters.idle(0.05, player); }
   ok(f.state === 'docked' && !Fighters.away(player).length, 'recalled on the map: docked');
@@ -47768,6 +47767,98 @@ section('448. jj 26.11 (262): the yard pick stays, BUY on the price; no cloak in
     ok(Math.abs(P.reactorHeat - (10 + H.shotHeatPerPower * P.weapons[0].powerCost)) < 1e-9, `a volley warms the core by its gun's power (10 → ${P.reactorHeat})`);
     const C = read('js/combat.js');
     ok(/enemy\.noteGunHeat\?\.\(w\)/.test(C) && /this\.playerShip\.noteGunHeat\?\.\(weapon\)/.test(C), 'both sides, every volley');
+  }
+})();
+
+// ============================================================
+section('449. jj 26.11 (263): the fighter on the hangar\'s icon (LAUNCH · RECALL · HOLD, or why not); BOARD and OUT on her right-click menu; a robot rides in her droid socket and never flies her alone; a bay with no power gets its two bars; a carrier from the yard comes with a robot');
+// ============================================================
+(function testUpdate263Fighter() {
+  const quiet = (fn) => { const log = console.log, warn = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = log; console.warn = warn; } };
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const sb = loadEngine();
+  const { Ship, CombatManager, Save, Game, Fighters, FIGHTER, Robots, Base } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+  /* the bug jj hit: a carrier out of the yard with the bay dark */
+  {
+    const s = new Ship('enemy_geb', true, 0, 0); s._allocateDefaultPower();
+    const h = Fighters.hangars(s)[0];
+    ok(Fighters.poweredTier(h) === 0, `a carrier's default power leaves the bay dark (hangar ${h.power} power) — the reason she would not launch`);
+    ok(/a\.act === 'launch' && Fighters\.poweredTier\(sys\) < 1 && sys\.workingLevels > 0\)[\s\S]{0,200}setPowerAt\(idx, Math\.max\(2, sys\.power\)\)/.test(read('js/game.js')),
+       'LAUNCH on a dark bay puts two bars into it from what the reactor has free, or says to take some off another module');
+  }
+  const player = new Ship('enemy_geb', true, 80, 120), enemy = new Ship('enemy_frigate', false, 850, 120);
+  [player, enemy].forEach(sh => { sh._allocateDefaultPower(); sh.prechargeShields(); });
+  sb.makeStartingCrew().forEach(c => player.addCrew(c)); sb.makeEnemyCrew(3).forEach(c => enemy.addCrew(c));
+  player.assignStations(); enemy.assignStations(); enemy.weapons = []; player.weapons = [];
+  T.playerShip = player; T.enemyShip = enemy; T.STATE = 'combat';
+  const hs = Fighters.hangars(player)[0], room = player.getRoomById(hs.roomId), f = Fighters.of(hs);
+  powerModule(player, 'hangar', 2);
+  const hands = player.crew.filter(c => !c.isPet);
+  const op = hands[0], pilot = hands[1];
+  const place = (c, slot) => { c.homeRoomId = room.id; c.roomId = room.id; [c.x, c.y] = player.stationSlot(room, slot); c._waypoints = []; };
+  place(op, 0);
+  const bot = Robots.make('terra', 'repair', { serial: 5 }); player.addCrew(bot); place(bot, 2);
+  /* 1. the icon */
+  ok(Fighters.iconAct(player, hs, true, enemy).text === 'NO PILOT', 'empty: the icon reads NO PILOT');
+  ok(Fighters.buttons(player).length === 0 && !/buttons\(ship\)\.filter\(b => b\.sys\.roomId === room\.id\)/.test(read('js/fighters.js')), 'no buttons in the module');
+  ok(/sys\.type === 'hangar' && ship\.isPlayer && typeof Fighters !== 'undefined'\)\s+\/\/ the hangar's icon is her order/.test(read('js/renderer.js'))
+     && /if \(sys && sys\.type === 'hangar'\) _fighterIconOrder\(sys\);/.test(read('js/game.js')), 'the hangar\'s icon on the power bar is the button, like the cloak\'s');
+  /* 2. a robot rides in the socket */
+  ok(Fighters.boardWhy(player, hs, bot) === null, 'BOARD for a robot: allowed');
+  bot._boardFighter = room.id;
+  quiet(() => { for (let i = 0; i < 4; i++) Fighters.step(0.05, player, enemy, hs, true, CombatManager); });
+  ok(f.bot === bot && !f.pilot && !player.crew.includes(bot), 'the robot climbs into her droid socket — not at the stick');
+  ok(/robot cannot fly her alone/.test(Fighters.launchWhy(player, hs, f, true) ?? '') && Fighters.iconAct(player, hs, true, enemy).text === 'NO PILOT',
+     'a robot alone: no launch — and the icon says so');
+  ok(/robot cannot fly her alone/.test(Fighters.order(player, hs, 'launch', true, enemy).message), 'LAUNCH refused, and why');
+  ok(Fighters.boardWhy(player, hs, Robots.make('terra', 'repair', { serial: 6 })) === 'her droid socket is taken', 'a second robot: the socket is taken');
+  /* 3. a man at the stick */
+  ok(Fighters.boardWhy(player, hs, pilot) === null, 'BOARD for a man: allowed');
+  pilot._boardFighter = room.id; place(pilot, 1);
+  quiet(() => { for (let i = 0; i < 4; i++) Fighters.step(0.05, player, enemy, hs, true, CombatManager); });
+  ok(f.pilot === pilot && f.bot === bot, 'the man at the stick, the robot in the socket');
+  ok(Fighters.boardWhy(player, hs, hands[2]) === 'she has a pilot', 'a third: she has a pilot');
+  ok(Fighters.crewAway(player).includes(bot) && Fighters.crewAway(player).includes(pilot), 'both are counted away (the save keeps them)');
+  const a = Fighters.iconAct(player, hs, true, enemy);
+  ok(a.text === 'LAUNCH' && a.act === 'launch' && a.on, `pilot, console man, power, a fight: the icon reads LAUNCH (${a.text})`);
+  hs.effectivePower = () => 1;
+  ok(Fighters.iconAct(player, hs, true, enemy).text === '2 PWR', 'one bar: 2 PWR');
+  delete hs.effectivePower;
+  ok(Fighters.order(player, hs, 'launch', true, enemy).ok && Fighters.iconAct(player, hs, true, enemy).text === 'HOLD', 'LAUNCH ordered: the icon now offers HOLD');
+  /* 4. the robot mends faster */
+  {
+    const g = { mods: [{ k: 'eng', hp: 1, max: 10 }], droid: { u: Fighters.SOCKET, hp: FIGHTER.DROID_HP }, bot: null };
+    g.droid.u = 0; const solo = JSON.parse(JSON.stringify(g)), withBot = JSON.parse(JSON.stringify(g)); withBot.bot = { dead: false };
+    ok(FIGHTER.BOT_MEND > 1, `a robot in the socket mends ×${FIGHTER.BOT_MEND}`);
+    ok(/FIGHTER\.DROID_RATE \* bot \* dt/.test(read('js/fighters.js')), '…her droid\'s work');
+  }
+  /* 5. shot down: both eject; out: both out */
+  quiet(() => Fighters.order(player, hs, 'hold'));
+  ok(Fighters.order(player, hs, 'out').ok && !f.pilot && !f.bot && player.crew.includes(pilot) && player.crew.includes(bot), 'OUT: the man and the robot onto the deck');
+  pilot._boardFighter = room.id; bot._boardFighter = room.id; place(pilot, 1); place(bot, 2);
+  quiet(() => { for (let i = 0; i < 4; i++) Fighters.step(0.05, player, enemy, hs, true, CombatManager); });
+  f.state = 'out';
+  quiet(() => Fighters.shootDown(player, f));
+  ok(f.ejected.includes(pilot) && f.ejected.includes(bot) && !f.bot, 'shot down: both eject, picked up after the fight');
+  /* 6. their robot does not fly */
+  ok(/if \(c && !c\.isRobot\) board\(ship, f, c\); \}\s+\/\/ a robot does not fly her/.test(read('js/fighters.js')), 'their robot at the console does not climb in to fly');
+  /* 7. the menu */
+  const G = read('js/game.js');
+  ok(/const fbay = sel\.length && typeof Fighters !== 'undefined' \? Fighters\.boardAt\(_playerShip, mx, my\) : null;/.test(G), 'right-click on her with a hand selected opens her menu');
+  ok(/function _fighterMenuActs\(\) \{ return \['board', 'fout'\]; \}/.test(G) && /board: 'BOARD', fout: 'OUT'/.test(read('js/renderer.js')), 'two rows: BOARD and OUT');
+  ok(/const bay = null;/.test(G), 'a left click on her is a click on the bay (no BOARD there any more)');
+  /* 8. a carrier from the yard */
+  {
+    Base.earn(5000);
+    const before = (Base.get().barracks ?? []).length;
+    const r = Base.buyShip('enemy_geb');
+    const after = Base.get().barracks ?? [];
+    const last = after[after.length - 1];
+    ok(r.ok && after.length === before + 1 && last?.isRobot && last.robotKind === 'operator', `a carrier bought: an operator robot in the barracks (${r.message})`);
+    ok(/operator robot/.test(sb.SHIP_CATALOG?.enemy_geb?.blurb ?? read('js/base.js')), 'her blurb says so');
   }
 })();
 

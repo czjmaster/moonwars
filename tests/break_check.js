@@ -1639,8 +1639,8 @@ const BREAKS = [
   {
     name: '#68 the menu opens with nobody selected',
     file: F('game.js'),
-    from: "      const sel = UI.getSelectedCrewAll();\n      const body = sel.length ? _bodyUnderCursor(mx, my) : null;",
-    to:   "      const body = _bodyUnderCursor(mx, my);",
+    from: "      _fighterMenu = null;\n      const body = sel.length ? _bodyUnderCursor(mx, my) : null;",
+    to:   "      _fighterMenu = null;\n      const body = _bodyUnderCursor(mx, my);",
   },
   {
     name: '#68 a greyed row swallows the click in silence',
@@ -18416,14 +18416,14 @@ const BREAKS = [
   {
     name: "#252 the pilot never climbs in",
     file: F('fighters.js'),
-    from: "        if (go && !f.pilot) { const c = consoleMan(ship, sys); if (c) board(ship, f, c); }",
-    to:   "        if (go && !f.pilot) { const c = consoleMan(ship, sys); if (c) f.pilot = c; }",
+    from: "        if (go && !f.pilot) { const c = consoleMan(ship, sys); if (c && !c.isRobot) board(ship, f, c); }",
+    to:   "        if (go && !f.pilot) { const c = consoleMan(ship, sys); if (c && !c.isRobot) f.pilot = c; }",
   },
   {
     name: "#252 the pilot never gets out",
     file: F('fighters.js'),
-    from: "    f.pilot = null;\n    putBack(ship, sys, c);\n  }",
-    to:   "    f.pilot = null;\n  }",
+    from: "    all.forEach(c => putBack(ship, sys, c));\n  }",
+    to:   "  }",
   },
   {
     name: "#252 a hit only on her hull",
@@ -18554,7 +18554,7 @@ const BREAKS = [
   {
     name: "#252 their pilot comes back to the wreck",
     file: F('fighters.js'),
-    from: "      if (!ship.isPlayer) { if (f.pilot) f.pilot._inFighter = false; f.pilot = null; f.ejected = []; }",
+    from: "      if (!ship.isPlayer) { aboard(f).forEach(c => { c._inFighter = false; }); f.pilot = null; f.bot = null; f.ejected = []; }",
     to:   "",
   },
   /* ── update251: jj 21.11 15:17 — wreckage with boarders aboard, list faces, reward cards, no blue in the shield, gas pictures, the body on the deck ── */
@@ -18917,7 +18917,7 @@ const BREAKS = [
   {
     name: "#256 the console man climbs in by himself again",
     file: F('fighters.js'),
-    from: "        if (!f.pilot && f.lift <= 0) boardWaiting(ship, sys, f);",
+    from: "        if (f.lift <= 0) boardWaiting(ship, sys, f);                // the stick or the socket (update263)",
     to:   "        if (!f.pilot && f.lift <= 0) { const k = consoleMan(ship, sys); if (k) board(ship, f, k); }",
   },
   {
@@ -18953,8 +18953,8 @@ const BREAKS = [
   {
     name: "#256 left behind, nothing lost",
     file: F('fighters.js'),
-    from: "      if (c) { c._inFighter = false; c.dead = true; c.hp = 0; c.state = 'dead'; lost.push(c); }",
-    to:   "      if (c) { c._inFighter = false; }",
+    from: "      aboard(f).forEach(c => { c._inFighter = false; c.dead = true; c.hp = 0; c.state = 'dead'; lost.push(c); });",
+    to:   "      aboard(f).forEach(c => { c._inFighter = false; });",
   },
   {
     name: "#256 her shots not hers in the Book",
@@ -19357,6 +19357,90 @@ const BREAKS = [
     file: F('ship.js'),
     from: "    this.reactorHeat = Utils.clamp((this.reactorHeat ?? 0) + REACTOR_HEAT_CONFIG.shotHeatPerPower",
     to:   "    this.reactorHeat = Utils.clamp((this.reactorHeat ?? 0) + 0 * REACTOR_HEAT_CONFIG.shotHeatPerPower",
+  },
+  {
+    name: "#263 a robot takes the stick",
+    file: F('fighters.js'),
+    from: "    if (c.isRobot) f.bot = c; else f.pilot = c;",
+    to:   "    f.pilot = c;",
+  },
+  {
+    name: "#263 a robot alone may fly her",
+    file: F('fighters.js'),
+    from: "    if (!f.pilot || f.pilot.isRobot) return f.bot || f.pilot?.isRobot ?",
+    to:   "    if (!f.pilot) return f.bot || f.pilot?.isRobot ?",
+  },
+  {
+    name: "#263 OUT leaves the robot in her",
+    file: F('fighters.js'),
+    from: "    const all = aboard(f);\n    f.pilot = null; f.bot = null;",
+    to:   "    const all = [f.pilot].filter(Boolean);\n    f.pilot = null;",
+  },
+  {
+    name: "#263 shot down, the robot vanishes",
+    file: F('fighters.js'),
+    from: "if (!b.dead) { b._ejected = true; (f.ejected = f.ejected ?? []).push(b); } }",
+    to:   "} }",
+  },
+  {
+    name: "#263 the robot is not counted away",
+    file: F('fighters.js'),
+    from: "out.push(...aboard(f)); out.push(...(f.ejected ?? []));",
+    to:   "if (f.pilot) out.push(f.pilot); out.push(...(f.ejected ?? []));",
+  },
+  {
+    name: "#263 only one hand boards",
+    file: F('fighters.js'),
+    from: "    ship.crew.filter(k => k && k._boardFighter === sys.roomId).forEach(c => boardOne(ship, sys, f, c));",
+    to:   "    ship.crew.filter(k => k && k._boardFighter === sys.roomId).slice(0, 1).filter(() => !f.pilot).forEach(c => boardOne(ship, sys, f, c));",
+  },
+  {
+    name: "#263 a seat taken is not refused",
+    file: F('fighters.js'),
+    from: "    if (c.isRobot ? f.bot : f.pilot) return c.isRobot ? 'her droid socket is taken' : 'she has a pilot';",
+    to:   "    if (false) return c.isRobot ? 'her droid socket is taken' : 'she has a pilot';",
+  },
+  {
+    name: "#263 the icon says LAUNCH with no pilot",
+    file: F('fighters.js'),
+    from: "               : !f.pilot || f.pilot.isRobot ? 'NO PILOT'",
+    to:   "               : false ? 'NO PILOT'",
+  },
+  {
+    name: "#263 the icon offers no HOLD",
+    file: F('fighters.js'),
+    from: "    if (f.order === 'launch') return { act: 'hold', text: 'HOLD', col: A, on: true };",
+    to:   "    if (false) return { act: 'hold', text: 'HOLD', col: A, on: true };",
+  },
+  {
+    name: "#263 the hangar icon switches the bay off",
+    file: F('renderer.js'),
+    from: "        x: mid - g.icon / 2, y: cTop, w: g.icon, h: g.icon,\n        ...(sys.type === 'cloaking' || (sys.type === 'hangar' && ship.isPlayer && typeof Fighters !== 'undefined')   // the hangar's icon is her order (update263)",
+    to:   "        x: mid - g.icon / 2, y: cTop, w: g.icon, h: g.icon,\n        ...(sys.type === 'cloaking'   // the hangar's icon is her order (update263)",
+  },
+  {
+    name: "#263 no power, no help",
+    file: F('game.js'),
+    from: "      _playerShip.setPowerAt(idx, Math.max(2, sys.power));",
+    to:   "      void idx;",
+  },
+  {
+    name: "#263 no menu on her",
+    file: F('game.js'),
+    from: "      if (fbay) { _bodyMenu = null; _fighterMenu = { roomId: fbay.roomId, x: mx, y: my }; _pressConsumed = true; return; }",
+    to:   "      if (false) { _bodyMenu = null; _fighterMenu = { roomId: fbay.roomId, x: mx, y: my }; _pressConsumed = true; return; }",
+  },
+  {
+    name: "#263 a carrier without her robot",
+    file: F('base.js'),
+    from: "      if (addCrew(bot.serialise())) return { ok: true, robot: bot,",
+    to:   "      if (false) return { ok: true, robot: bot,",
+  },
+  {
+    name: "#263 their robot flies",
+    file: F('fighters.js'),
+    from: "if (c && !c.isRobot) board(ship, f, c); }   // a robot does not fly her",
+    to:   "if (c) board(ship, f, c); }   // a robot does not fly her",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

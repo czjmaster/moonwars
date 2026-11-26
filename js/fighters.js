@@ -78,6 +78,7 @@ const FIGHTER = {
   EJECT_HP: 0.35,          // a pilot who ejected comes home with no more than this share of his health
   DROID_HP: 2,
   DROID_RATE: 0.2,         // module hp a second — half a hand
+  BOT_MEND: 1.6,           // a robot of the crew in her droid's socket mends this much faster (update262)
   DROID_SPEED: 40,         // u/s down his rail
   DROID_HURT: 0.5,         // the chance a hit on the module he is in breaks a piece of him
   AI_AIM: 0.3,             // the chance one of their shots goes at our fighter while she is out
@@ -192,14 +193,17 @@ const Fighters = (() => {
     if (typeof TASK !== 'undefined') c.task = TASK.IDLE;
     ship.crew = ship.crew.filter(k => k !== c);
     c.roomId = null; c._inFighter = true;
-    f.pilot = c;
+    /* A ROBOT RIDES IN THE SOCKET, NOT AT THE STICK (update263, jj 26.11: „robot nie może prowadzić sam myśliwca"):
+       he mends her modules beside her own droid; the stick is a man's. */
+    if (c.isRobot) f.bot = c; else f.pilot = c;
   }
+  /** Who is in her: the man at the stick and the robot in the socket. */
+  function aboard(f) { return [f?.pilot, f?.bot].filter(Boolean); }
   /** Out of her, at the launch console — alive, wounded or dead. */
   function disembark(ship, sys, f) {
-    const c = f.pilot;
-    if (!c) return;
-    f.pilot = null;
-    putBack(ship, sys, c);
+    const all = aboard(f);
+    f.pilot = null; f.bot = null;
+    all.forEach(c => putBack(ship, sys, c));
   }
   function putBack(ship, sys, c) {
     const room = roomOf(ship, sys);
@@ -215,7 +219,7 @@ const Fighters = (() => {
   /** Everyone of this ship's who is out in a fighter or waiting to be picked up (for the save). */
   function crewAway(ship) {
     const out = [];
-    hangars(ship).forEach(sys => { const f = sys._fighter; if (!f) return; if (f.pilot) out.push(f.pilot); out.push(...(f.ejected ?? [])); });
+    hangars(ship).forEach(sys => { const f = sys._fighter; if (!f) return; out.push(...aboard(f)); out.push(...(f.ejected ?? [])); });
     return out;
   }
 
@@ -377,7 +381,7 @@ const Fighters = (() => {
       case 'docked': {
         if (!sys.isDisabled()) mend(dt, f);
         const go = !why && f.hp >= hullMax(f) * FIGHTER.GO_AT;
-        if (go && !f.pilot) { const c = consoleMan(ship, sys); if (c) board(ship, f, c); }
+        if (go && !f.pilot) { const c = consoleMan(ship, sys); if (c && !c.isRobot) board(ship, f, c); }   // a robot does not fly her (update263)
         if (!f.pilot) { liftTo(0); break; }
         liftTo(go ? 1 : 0);
         if (!go && f.lift <= 0) { disembark(ship, sys, f); break; }
@@ -443,7 +447,7 @@ const Fighters = (() => {
   /** Her own ship, the fight to go to — or why not. */
   function launchWhy(ship, sys, f, fightOn) {
     if (f.state === 'lost') return 'she was lost — a yard sells a new one';
-    if (!f.pilot) return 'no pilot — select a hand and click her';
+    if (!f.pilot || f.pilot.isRobot) return f.bot || f.pilot?.isRobot ? 'a robot cannot fly her alone — put a man at the stick' : 'no pilot — select a hand and right-click her';
     if (!pilotOk(f.pilot)) return 'the pilot is hurt';
     const lw = liftWhy(ship, sys); if (lw) return lw;
     if (!fightOn) return 'no fight to fly into';
@@ -464,7 +468,7 @@ const Fighters = (() => {
     switch (f.state) {
       case 'docked': {
         if (!sys.isDisabled()) mend(dt, f);
-        if (!f.pilot && f.lift <= 0) boardWaiting(ship, sys, f);
+        if (f.lift <= 0) boardWaiting(ship, sys, f);                // the stick or the socket (update263)
         if (f.pilot && !pilotOk(f.pilot) && f.lift <= 0) { disembark(ship, sys, f); f.order = 'hold'; }
         if (f.order === 'launch' && !fightOn) f.order = 'hold';
         const go = f.order === 'launch' && !launchWhy(ship, sys, f, fightOn);
@@ -525,23 +529,28 @@ const Fighters = (() => {
 
   /** The hand sent to her (`c._boardFighter`) climbs in once he stands in the bay. */
   function boardWaiting(ship, sys, f) {
-    const c = ship.crew.find(k => k && k._boardFighter === sys.roomId);
-    if (!c) return;
+    /* every hand sent to her, a man and a robot both (update263) */
+    ship.crew.filter(k => k && k._boardFighter === sys.roomId).forEach(c => boardOne(ship, sys, f, c));
+  }
+  function boardOne(ship, sys, f, c) {
+    if (c.isRobot ? f.bot : f.pilot) { c._boardFighter = null; return; }          // that seat is taken (update263)
     if (!pilotOk(c) || c.isPet || (c.homeRoomId != null && c.homeRoomId !== sys.roomId)) { c._boardFighter = null; return; }
     if (c.roomId !== sys.roomId || (c._waypoints?.length ?? 0) > 0) return;
     c._boardFighter = null;
     board(ship, f, c);
     c.homeRoomId = sys.roomId;
-    if (typeof UI !== 'undefined') UI.notify?.(`${c.name} is in the cockpit — LAUNCH from the hangar.`, 'info');
+    if (typeof UI !== 'undefined') UI.notify?.(c.isRobot ? `${c.name} is in her droid socket — he mends her in the fight.`
+                                                         : `${c.name} is in the cockpit — LAUNCH on the hangar's power bar.`, 'info');
   }
 
   /** An order from the hangar's buttons: 'launch' | 'recall' | 'out' (the pilot climbs out) | 'hold'. {ok, message} */
   function order(ship, sys, act, fighting = false, foe = null) {
     const f = of(sys);
     if (act === 'out') {
-      if (f.state !== 'docked' || f.lift > 0 || !f.pilot) return { ok: false, message: 'She is not on her platform.' };
+      if (f.state !== 'docked' || f.lift > 0) return { ok: false, message: 'She is not on her platform.' };
+      if (!aboard(f).length) return { ok: false, message: 'Nobody is in her.' };
       disembark(ship, sys, f); f.order = 'hold';
-      return { ok: true, message: 'The pilot climbs out.' };
+      return { ok: true, message: 'Out of her, onto the deck.' };
     }
     if (act === 'launch') {
       if (f.state === 'returning') { f.order = 'launch'; return { ok: true, message: 'Back into the fight.' }; }
@@ -560,8 +569,40 @@ const Fighters = (() => {
     return { ok: true, message: 'Launch called off.' };
   }
 
-  /** Her buttons on the bay's wall (ours): [{x, y, w, h, label, act, sys, on}] */
+  /** HER ORDER ON THE HANGAR'S POWER BAR (update263, jj 26.11: „uruchomienie windy i wysłanie lub wezwanie myśliwca na przycisk
+   *  pod modułem energii hangaru, tak jak cloak — nie rób przycisków w modułach"). The bay's icon is the button, like the
+   *  cloak's; this says what a click on it does now and what its label reads: {act, text, col, on, why}. */
+  function iconAct(ship, sys, fighting, foe) {
+    if (fighting === undefined && typeof CombatManager !== 'undefined') {       // the power bar asks without a fight in hand
+      fighting = !!(CombatManager.isActive?.() && CombatManager.playerShip === ship); foe = fighting ? CombatManager.enemyShip : null;
+    }
+    const f = of(sys);
+    if (!f) return null;
+    const fightOn = fightOnFor(fighting, foe);
+    const G = '#1aff8c', A = '#ffb020', D = '#6a7488', R = '#884444';
+    switch (f.state) {
+      case 'lost': return { act: null, text: 'LOST', col: R, on: false, why: 'she was lost — a yard sells a new one' };
+      case 'out': return { act: 'recall', text: 'RECALL', col: A, on: true };
+      case 'returning': return f.order === 'launch' ? { act: 'recall', text: 'RECALL', col: A, on: true }
+                                                    : { act: 'launch', text: 'LAUNCH', col: fightOn ? G : D, on: fightOn, why: fightOn ? null : 'no fight to fly into' };   // coming home: back out
+      case 'outside': return f.order === 'recall' ? { act: null, text: liftWhy(ship, sys) ? 'NO LIFT' : 'COMING', col: liftWhy(ship, sys) ? R : D, on: false, why: liftWhy(ship, sys) }
+                                                  : { act: 'recall', text: 'RECALL', col: A, on: true };
+    }
+    if (f.order === 'launch') return { act: 'hold', text: 'HOLD', col: A, on: true };
+    const why = launchWhy(ship, sys, f, fightOn);
+    const text = !why ? 'LAUNCH'
+               : !f.pilot || f.pilot.isRobot ? 'NO PILOT'
+               : /power/.test(why) ? '2 PWR'
+               : /console/.test(why) ? 'NO OP'
+               : /wrecked/.test(why) ? 'WRECKED'
+               : /hurt/.test(why) ? 'HURT'
+               : 'LAUNCH';
+    return { act: 'launch', text, col: why ? (text === 'LAUNCH' ? D : R) : G, on: !why, why };
+  }
+
+  /** (update256's buttons on the bay's wall — gone in update263; kept empty for old callers) */
   function buttons(ship) {
+    return [];
     if (!ours(ship)) return [];
     const out = [];
     hangars(ship).forEach(sys => {
@@ -587,10 +628,20 @@ const Fighters = (() => {
     if (!ours(ship)) return null;
     for (const sys of hangars(ship)) {
       const f = sys._fighter, room = roomOf(ship, sys);
-      if (!f || !room || f.state !== 'docked' || f.lift > 0 || f.pilot) continue;
+      if (!f || !room || f.state !== 'docked' || f.lift > 0) continue;   // a seat taken or not: the menu says (update263)
       const G = geom(ship, room), s = onPlatform(ship, G, 0);
       if (x >= s.x - s.len / 2 && x <= s.x + s.len / 2 && y >= s.floor - G.fighterH - 4 && y <= s.floor + 4) return sys;
     }
+    return null;
+  }
+  /** Why this hand cannot BOARD her (the right-click menu, update263), or null. */
+  function boardWhy(ship, sys, c) {
+    const f = of(sys);
+    if (!c || !c.alive || c.isPet || c.isPrisoner) return 'select a hand first';
+    if (c.state === 'injured') return 'he is hurt';
+    if (f.state !== 'docked' || f.lift > 0) return 'she is not on her platform';
+    if (aboard(f).includes(c)) return 'he is in her already';
+    if (c.isRobot ? f.bot : f.pilot) return c.isRobot ? 'her droid socket is taken' : 'she has a pilot';
     return null;
   }
   /** Away from the ship (out, coming home, or left outside after a fight) — a jump would leave her behind. */
@@ -601,9 +652,9 @@ const Fighters = (() => {
   function abandon(ship) {
     const lost = [];
     away(ship).forEach(sys => {
-      const f = sys._fighter, c = f.pilot;
-      if (c) { c._inFighter = false; c.dead = true; c.hp = 0; c.state = 'dead'; lost.push(c); }
-      f.pilot = null; f.state = 'lost'; f.hp = 0; f.lift = 0; f.order = 'hold'; f.noRebuild = true;
+      const f = sys._fighter;
+      aboard(f).forEach(c => { c._inFighter = false; c.dead = true; c.hp = 0; c.state = 'dead'; lost.push(c); });
+      f.pilot = null; f.bot = null; f.state = 'lost'; f.hp = 0; f.lift = 0; f.order = 'hold'; f.noRebuild = true;
     });
     return lost;
   }
@@ -664,7 +715,8 @@ const Fighters = (() => {
     const d = to - D.u, step = FIGHTER.DROID_SPEED * dt;
     if (Math.abs(d) > step) { D.u += Math.sign(d) * step; return; }
     D.u = to;
-    if (best) { best.m.hp = Math.min(best.m.max, best.m.hp + FIGHTER.DROID_RATE * dt); D.working = true; }
+    const bot = f.bot && !f.bot.dead ? FIGHTER.BOT_MEND : 1;      // a robot of ours in the socket (update263)
+    if (best) { best.m.hp = Math.min(best.m.max, best.m.hp + FIGHTER.DROID_RATE * bot * dt); D.working = true; }
   }
 
   /** Fly towards (tx, ty); `slow` near the end. */
@@ -742,6 +794,7 @@ const Fighters = (() => {
       (f.ejected = f.ejected ?? []).push(c);
       if (typeof Particles !== 'undefined') Particles.floatText?.(f.x, f.y - 14, 'EJECT', '#ffd700', 11);
     }
+    if (f.bot) { const b = f.bot; f.bot = null; if (!b.dead) { b._ejected = true; (f.ejected = f.ejected ?? []).push(b); } }   // the robot too (update263)
     if (typeof Particles !== 'undefined') Particles.explosion?.(f.x, f.y, 0.8);
     if (typeof Audio !== 'undefined') Audio.sfx?.hullHit?.();
     if (typeof UI !== 'undefined' && !pilotDead) {
@@ -758,7 +811,7 @@ const Fighters = (() => {
     hangars(ship).forEach(sys => {
       const f = of(sys);
       /* theirs: the fight is over and they lost it or we left — their pilot flies off (no live man appears in a wreck) */
-      if (!ship.isPlayer) { if (f.pilot) f.pilot._inFighter = false; f.pilot = null; f.ejected = []; }
+      if (!ship.isPlayer) { aboard(f).forEach(c => { c._inFighter = false; }); f.pilot = null; f.bot = null; f.ejected = []; }
       /* OURS STAY WHERE THEY ARE (update256): one in the air is left outside — RECALL her before the jump; her pilot
          stays in her on the platform until he is ordered out */
       if (ours(ship)) {
@@ -821,24 +874,7 @@ const Fighters = (() => {
   /** Inside the room (drawn with the room). */
   function drawInRoom(ctx, ship, room) {
     drawLift(ctx, ship, room, { x: room.x, y: room.floorTop, w: room.w, h: room.floorH });
-    /* her orders on the bay's wall (update256) */
-    const mouse = (typeof Input !== 'undefined') ? Input.mouse : null;
-    buttons(ship).filter(b => b.sys.roomId === room.id).forEach(b => {
-      const over = mouse && mouse.x >= b.x && mouse.x <= b.x + b.w && mouse.y >= b.y && mouse.y <= b.y + b.h;
-      ctx.save();
-      ctx.fillStyle = !b.on ? 'rgba(20,22,30,0.85)' : over ? 'rgba(26,255,140,0.35)' : 'rgba(8,24,18,0.85)';
-      ctx.fillRect(b.x, b.y, b.w, b.h);
-      ctx.strokeStyle = b.on ? '#1aff8c' : '#4a4f5a'; ctx.lineWidth = 1; ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1);
-      ctx.fillStyle = b.on ? '#d8ffe8' : '#7a808c'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 + 0.5);
-      ctx.restore();
-    });
-    /* an empty cockpit: how to get a pilot in */
-    const f = room.system?._fighter;
-    if (ours(ship) && f && f.state === 'docked' && !f.pilot && f.lift <= 0) {
-      ctx.save(); ctx.fillStyle = 'rgba(200,220,255,0.75)'; ctx.font = '7px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-      ctx.fillText('NO PILOT: select a hand, click her', room.x + 4, room.y + 5); ctx.restore();
-    }
+    /* nothing written in the module any more (update263) — her orders and NO PILOT are on the hangar's power bar */
   }
   /** Under the keel (drawn after the hull). */
   function drawBelow(ctx, ship) {
@@ -1066,7 +1102,7 @@ const Fighters = (() => {
            shootDown, modRects, airRects, target, targetAt, targetLive, aimFor, track, receiveHit, hitModule, dodge, crewAway,
            board, disembark, refit, levelOf, SPANS, SOCKET,
            tierOf, markOf, poweredTier, setMark, isLost, restore, saveOf, order, buttons, buttonAt, boardAt, away, abandon, idle,
-           liftWhy, launchWhy, AUTO };
+           liftWhy, launchWhy, AUTO, aboard, iconAct, boardWhy };
 })();
 
 if (typeof window !== 'undefined') { window.Fighters = Fighters; window.FIGHTER = FIGHTER; }

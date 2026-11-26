@@ -33,7 +33,7 @@ const Game = (() => {
 const MENU_ITEMS = ['ENTER BASE','OPTIONS','NEW GAME'];
 /* THE BUILD ON THE TITLE SCREEN (update254, jj 23.11): 0.<update> until the release (then 1.0.0). Raised with
    every package. */
-const GAME_VERSION = '0.262';
+const GAME_VERSION = '0.263';
 /* THE TITLE SCREEN (update123, jj: "co do menu zrób to, co napisałeś"):
    your own hull drifting past the Moon with its roof on, a line under
    ENTER BASE saying what is waiting in there, and NEW GAME — behind a
@@ -1838,6 +1838,59 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     return true;
   }
 
+  /** HER ORDER ON THE HANGAR'S ICON (update263, jj 26.11: „na przycisk pod modułem energii hangaru, tak jak cloak"):
+   *  LAUNCH · RECALL · HOLD, whichever the label says. A bay with no power is given its two bars from what the reactor has
+   *  free — jj's carrier came out of the yard with the bay dark and nothing said why she would not go. */
+  function _fighterIconOrder(sys) {
+    if (!_playerShip || typeof Fighters === 'undefined') return;
+    const fighting = STATE === 'combat' && (CombatManager.isActive?.() || CombatManager.state === 'active');
+    const foe = STATE === 'combat' ? _enemyShip : null;
+    const a = Fighters.iconAct(_playerShip, sys, fighting, foe);
+    if (!a) return;
+    if (!a.act) { if (a.why) UI.notify(`${a.text} — ${a.why}.`, 'warn'); return; }
+    if (_needCommander?.(a.text)) return;
+    if (a.act === 'launch' && Fighters.poweredTier(sys) < 1 && sys.workingLevels > 0) {
+      const idx = _playerShip.systems.indexOf(sys);
+      _playerShip.setPowerAt(idx, Math.max(2, sys.power));
+      if (Fighters.poweredTier(sys) < 1) { UI.notify('LAUNCH — the bay needs 2 power: take some off another module.', 'warn'); return; }
+      UI.notify('Two bars into the hangar.', 'info');
+    }
+    const r = Fighters.order(_playerShip, sys, a.act, fighting, foe);
+    UI.notify(r.message, r.ok ? 'info' : 'warn');
+  }
+
+  /* THE FIGHTER'S MENU (update263, jj 26.11: „zaznaczony załogant — prawym na myśliwiec w hangarze i »wejdź do samolotu«,
+     małe menu tak jak szukanie trupów; tak samo roboty"): BOARD (the selected hand walks to her and climbs in — a man at
+     the stick, a robot in her droid socket) and OUT (whoever is in her climbs out). */
+  let _fighterMenu = null;
+  function _fighterMenuActs() { return ['board', 'fout']; }
+  function _fighterMenuRefusal(act) {
+    const sys = _fighterMenu && _playerShip?.systems.find(s => s.roomId === _fighterMenu.roomId && s.type === 'hangar');
+    if (!sys) return 'no hangar';
+    if (act === 'fout') {
+      const f = Fighters.of(sys);
+      if (!Fighters.aboard(f).length) return 'nobody is in her';
+      return f.state !== 'docked' || f.lift > 0 ? 'she is not on her platform' : null;
+    }
+    const m = UI.getSelectedCrewAll().find(c => _playerShip.crew.includes(c) && c.alive) ?? null;
+    return Fighters.boardWhy(_playerShip, sys, m);
+  }
+  function _fighterMenuDo(act) {
+    const sys = _playerShip.systems.find(s => s.roomId === _fighterMenu.roomId && s.type === 'hangar');
+    const why = _fighterMenuRefusal(act);
+    if (why) { UI.notify(`${act === 'fout' ? 'OUT' : 'BOARD'} — ${why}.`, 'warn'); return; }
+    if (act === 'fout') { const r = Fighters.order(_playerShip, sys, 'out'); UI.notify(r.message, r.ok ? 'info' : 'warn'); return; }
+    const m = UI.getSelectedCrewAll().find(c => _playerShip.crew.includes(c) && c.alive);
+    const bayRoom = _playerShip.getRoomById(sys.roomId);
+    _playerShip.crew.forEach(k => { if (k._boardFighter === bayRoom.id && !!k.isRobot === !!m.isRobot) k._boardFighter = null; });
+    m.homeRoomId = bayRoom.id;
+    m._boardFighter = bayRoom.id;
+    const [tx, ty] = _playerShip.stationSlot(bayRoom, 1);
+    m.moveToOnShip(_playerShip, tx, ty);
+    if (m.roomId !== bayRoom.id) m._disengage = { from: m.roomId };
+    UI.notify(m.isRobot ? `${m.name} goes to her droid socket.` : `${m.name} goes to the fighter.`, 'info');
+  }
+
   /** A JUMP WITH HER OUTSIDE (update256): the first try warns, a second within 6 s leaves her — and her pilot. */
   let _fighterWarnAt = -1e9;
   function _fighterJumpOk() {
@@ -2147,6 +2200,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
          only ever say no. The player asked for exactly this: "menu nie
          ma jak nie jest zaznaczony załogant". */
       const sel = UI.getSelectedCrewAll();
+      /* HER MENU, with a hand selected and the click on her on her platform (update263) */
+      const fbay = sel.length && typeof Fighters !== 'undefined' ? Fighters.boardAt(_playerShip, mx, my) : null;
+      if (fbay) { _bodyMenu = null; _fighterMenu = { roomId: fbay.roomId, x: mx, y: my }; _pressConsumed = true; return; }
+      _fighterMenu = null;
       const body = sel.length ? _bodyUnderCursor(mx, my) : null;
       /* ANCHORED ON THE MAN, NOT ON THE CURSOR (update69). The menu
          opened wherever the mouse happened to be, which on a hull this
@@ -2245,6 +2302,13 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        order, a click anywhere else shuts it. Without this the same
        press would also be read as "move the selection here", and the
        player would order a burial and a march in one go. */
+    if (_fighterMenu) {                                    // modal for one press, like the body menu (update263)
+      const R = Renderer.bodyMenuRects(_fighterMenu.x, _fighterMenu.y, _fighterMenuActs());
+      const hit = R.items.find(it => mx >= it.x && mx <= it.x + it.w && my >= it.y && my <= it.y + it.h);
+      if (hit) _fighterMenuDo(hit.act);
+      _fighterMenu = null;
+      return;
+    }
     if (_bodyMenu) {
       const hit = _bodyMenuHit(mx, my);
       /* A row is the order; anywhere else just shuts it. The click is
@@ -2338,7 +2402,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
     /* BOARD HER (update256, jj: „zaznaczyć załoganta i dać na samolot komendę »wejdź«"): a selected hand and a
        click on the fighter on her platform — he walks to the bay and climbs in. */
-    const bay = (typeof Fighters !== 'undefined' && !_pressHadWeapon) ? Fighters.boardAt(_playerShip, mx, my) : null;
+    /* (update263: BOARD is on her right-click menu now — a left click on her is a click on the bay) */
+    const bay = null;
     if (bay) {
       const m = sel.find(c => _playerShip.crew.includes(c) && c.alive && !c.isPet && !c.isPrisoner && c.state !== 'injured');
       const bayRoom = _playerShip.getRoomById(bay.roomId);
@@ -4093,6 +4158,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       if (z.sysActivateIndex !== undefined) {
         const sys = _playerShip.systems[z.sysActivateIndex];
         if (sys && sys.type === 'cloaking') _activateCloak(sys);
+        if (sys && sys.type === 'hangar') _fighterIconOrder(sys);       // her order on the bay's icon (update263)
         return true;
       }
       // The reactor is a module too — its icon scrams the whole plant.
@@ -4994,6 +5060,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
    *  empty patch of deck is the sort of thing that outlives its
    *  subject and then takes a click meant for something else. */
   function _drawBodyMenu(ctx) {
+    if (_fighterMenu && _playerShip) Renderer.drawBodyMenu(ctx, _fighterMenu.x, _fighterMenu.y, 'FIGHTER', _fighterMenuRefusal, _fighterMenuActs());
     if (!_bodyMenu) return;
     const body = _bodyMenuBody();
     if (!body) { _bodyMenu = null; return; }
