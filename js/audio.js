@@ -568,7 +568,156 @@ const Audio = (() => {
              { pad: 0.9, bass: 1,   drums: 0.9, lead: 0.7,  arp: 0.3 },
              { pad: 1,   bass: 1,   drums: 1,   lead: 0.85, arp: 0.9 } ],
     },
+
+    /* ══ MORE SONGS (update261, jj 25.11: „więcej rodzajów muzyki, szczególnie w bazie jest fajna, ale ile można słuchać
+     * tego samego") ══ Each mode has a PLAYLIST now (below): a song plays its few minutes, then the next one of the same
+     * mode comes in on a crossfade — and the next visit to a mode starts on its next song. Same band, same rules
+     * (the tests check every song's key, its bass and its melody's way home). */
+
+    /* The base, a morning in the hangar: D mixolydian, unhurried — D, C, G, Am; a plucked tune, brushed drums. */
+    base_a: {
+      bpm: 84, root: 50, scale: [0, 2, 4, 5, 7, 9, 10], bpc: 2, tension: 0,
+      chords: [[0, 4, 7], [-2, 2, 5], [5, 9, 12], [7, 10, 14]],
+      pad:   { voice: 'padSoft', oct: 0, cutoff: [1000, 1400, 2100] },
+      bass:  { voice: 'sub', pattern: [[0, 6, 0], [6, 2, 7], [8, 8, 0]], cutoff: [1500, 1500, 1800] },
+      drums: { kick:  ['x.......x.......', 'x.......x.......', 'x.....x.x.......'],
+               snare: ['................', '....x.......x...', '....x.......x...'],
+               hat:   ['..x.......x.....', '..x...x...x...x.', 'x.x.x.x.x.x.x.x.'] },
+      lead:  { voice: 'pluck', oct: 12, span: 14, density: 0.65, rhythms: ['walk', 'long', 'call'], cutoff: [5000, 5500, 6500] },
+      arp:   { voice: 'glass', oct: 24, rate: 2, cutoff: [3000, 3500, 4500] },
+      mix: [ { pad: 1,   bass: 0.6,  drums: 0.25, lead: 0.8, arp: 0.25 },
+             { pad: 1,   bass: 0.8,  drums: 0.55, lead: 0.85, arp: 0.5 },
+             { pad: 1,   bass: 1,    drums: 0.85, lead: 0.9, arp: 0.8 } ],
+    },
+    /* The base at night: F major, slow sevenths — Fmaj7, Dm7, Bbmaj7, C; a glass bell, almost nothing else. */
+    base_b: {
+      bpm: 70, root: 53, scale: [0, 2, 4, 5, 7, 9, 11], bpc: 2, tension: 0,
+      chords: [[0, 4, 7, 11], [-3, 0, 4, 7], [5, 9, 12, 16], [7, 11, 14]],
+      pad:   { voice: 'padSoft', oct: 0, cutoff: [800, 1200, 1800] },
+      bass:  { voice: 'sub', pattern: [[0, 8, 0], [8, 8, 7]], cutoff: [1300, 1300, 1600] },
+      drums: { kick:  ['x.........x.....', 'x.........x.....', 'x.....x...x.....'],
+               snare: ['................', '........x.......', '....x.......x...'],
+               hat:   ['................', '....x.......x...', '..x...x...x...x.'] },
+      lead:  { voice: 'glass', oct: 12, span: 12, density: 0.5, rhythms: ['long', 'whole', 'walk'], cutoff: [5000, 5000, 6000] },
+      arp:   { voice: 'arp', oct: 24, rate: 4, cutoff: [2400, 2800, 3600] },
+      mix: [ { pad: 1,   bass: 0.5,  drums: 0.15, lead: 0.85, arp: 0.2 },
+             { pad: 1,   bass: 0.7,  drums: 0.45, lead: 0.85, arp: 0.4 },
+             { pad: 1,   bass: 0.9,  drums: 0.75, lead: 0.9, arp: 0.7 } ],
+    },
+    /* The map, Mare Imbrium: E aeolian, wide and lonely — Em, C, G, D; a reed over the pad. */
+    explore_b: {
+      bpm: 72, root: 52, scale: [0, 2, 3, 5, 7, 8, 10], bpc: 2, tension: 0,
+      chords: [[0, 3, 7], [-4, 0, 3], [3, 7, 10], [-2, 2, 5]],
+      pad:   { voice: 'padSoft', oct: 0, cutoff: [900, 1300, 2000] },
+      bass:  { voice: 'sub', pattern: [[0, 10, 0], [10, 6, 7]], cutoff: [1400, 1400, 1700] },
+      drums: { kick:  ['x...............', 'x.......x.......', 'x.....x.x.......'],
+               snare: ['................', '....x.......x...', '....x.......x...'],
+               hat:   ['................', '..x...x...x...x.', 'x.x.x.x.x.x.x.x.'] },
+      lead:  { voice: 'reed', oct: 12, span: 14, density: 0.55, rhythms: ['long', 'whole', 'walk'], cutoff: [3500, 4000, 5000] },
+      arp:   { voice: 'arp', oct: 12, rate: 2, cutoff: [2500, 3000, 4000] },
+      mix: [ { pad: 1,   bass: 0.55, drums: 0,    lead: 0.8, arp: 0 },
+             { pad: 1,   bass: 0.8,  drums: 0.5,  lead: 0.8, arp: 0.45 },
+             { pad: 1,   bass: 1,    drums: 0.85, lead: 0.9, arp: 0.85 } ],
+    },
+    /* The map, low orbit: G lydian, light and moving — G, A, Em, D; a pluck that walks. */
+    explore_c: {
+      bpm: 80, root: 55, scale: [0, 2, 4, 6, 7, 9, 11], bpc: 2, tension: 0,
+      chords: [[0, 4, 7], [2, 6, 9], [-3, 0, 4], [-5, -1, 2]],
+      pad:   { voice: 'padSoft', oct: -12, cutoff: [1000, 1400, 2100] },
+      bass:  { voice: 'sub', pattern: [[0, 4, 0], [6, 2, 7], [8, 6, 0], [14, 2, 12]], cutoff: [1500, 1500, 1800] },
+      drums: { kick:  ['x.......x.......', 'x.......x.......', 'x.....x.x.....x.'],
+               snare: ['................', '....x.......x...', '....x.......x...'],
+               hat:   ['................', 'x...x...x...x...', 'x.x.x.x.x.x.x.x.'] },
+      lead:  { voice: 'pluck', oct: 12, span: 14, density: 0.6, rhythms: ['walk', 'sync', 'long'], cutoff: [5000, 5500, 6500] },
+      arp:   { voice: 'glass', oct: 12, rate: 2, cutoff: [3000, 3500, 4500] },
+      mix: [ { pad: 0.9, bass: 0.55, drums: 0,    lead: 0.8, arp: 0.35 },
+             { pad: 0.9, bass: 0.8,  drums: 0.5,  lead: 0.85, arp: 0.55 },
+             { pad: 1,   bass: 1,    drums: 0.85, lead: 0.9, arp: 0.85 } ],
+    },
+    /* A port, the promenade: Bb mixolydian, a market's bounce — Bb, Ab, Eb, Fm; stabs and a pluck. */
+    station_b: {
+      bpm: 102, root: 46, scale: [0, 2, 4, 5, 7, 9, 10], bpc: 2, tension: 0,
+      chords: [[0, 4, 7], [-2, 2, 5], [5, 9, 12], [7, 10, 14]],
+      pad:   { voice: 'stab', oct: 12, stabs: [[0, 2], [3, 2], [8, 2], [11, 3]], cutoff: [2200, 2600, 3200] },
+      bass:  { voice: 'sub', pattern: [[0, 3, 0], [3, 1, 12], [4, 2, 7], [8, 3, 0], [11, 1, 12], [12, 2, 7], [14, 2, 12]], cutoff: [1600, 1600, 1900] },
+      drums: { kick:  ['x.......x.......', 'x.......x.x.....', 'x...x...x...x...'],
+               snare: ['....x.......x...', '....x.......x...', '....x.......x..x'],
+               hat:   ['..x...x...x...x.', 'x.x.x.x.x.x.x.x.', 'xxxxxxxxxxxxxxxx'] },
+      lead:  { voice: 'pluck', oct: 24, span: 14, density: 0.75, rhythms: ['call', 'sync', 'walk'], cutoff: [5000, 5000, 6000] },
+      arp:   { voice: 'arp', oct: 24, rate: 2, cutoff: [3000, 3500, 4500] },
+      mix: [ { pad: 0.8,  bass: 0.8, drums: 0.45, lead: 0.75, arp: 0.25 },
+             { pad: 0.85, bass: 0.9, drums: 0.65, lead: 0.8,  arp: 0.45 },
+             { pad: 0.9,  bass: 1,   drums: 0.85, lead: 0.85, arp: 0.7 } ],
+    },
+    /* A fight, broadside: D minor, faster — Dm, Bb, C, A; the saw lead over a pulsing bass. */
+    combat_b: {
+      bpm: 132, root: 50, scale: [0, 2, 3, 5, 7, 8, 10], bpc: 2, tension: 1,
+      chords: [[0, 3, 7], [-4, 0, 3], [-2, 2, 5], [7, 11, 14]],
+      pad:   { voice: 'pad', oct: 0, cutoff: [700, 1100, 1900] },
+      bass:  { voice: 'pulse', pattern: [[0, 2, 0], [2, 1, 0], [3, 1, 0], [4, 2, 12], [6, 2, 0], [8, 2, 0], [10, 1, 0], [11, 1, 0], [12, 2, 12], [14, 2, 7]], cutoff: [700, 900, 1300] },
+      drums: { kick:  ['x.......x.......', 'x..x....x..x....', 'x..x..x.x..x..x.'],
+               snare: ['................', '....x.......x...', '....x.......x.xx'],
+               hat:   ['..x...x...x...x.', 'x.x.x.x.x.x.x.x.', 'xxxxxxxxxxxxxxxx'],
+               tom:   ['................', '................', '............x.x.'] },
+      lead:  { voice: 'saw', oct: 12, span: 15, density: 0.75, rhythms: ['drive', 'sync', 'call'], cutoff: [1800, 2400, 3200] },
+      arp:   { voice: 'arp', oct: 12, rate: 1, cutoff: [1500, 2200, 3500] },
+      mix: [ { pad: 0.9, bass: 0.5, drums: 0.3, lead: 0,   arp: 0 },
+             { pad: 0.8, bass: 1,   drums: 0.85, lead: 0.6, arp: 0.25 },
+             { pad: 0.9, bass: 1,   drums: 1,    lead: 0.8, arp: 0.85 } ],
+    },
+    /* A fight, hull breach: F# phrygian, close and dark — F#m, G, E, D; a brass call. */
+    combat_c: {
+      bpm: 120, root: 54, scale: [0, 1, 3, 5, 7, 8, 10], bpc: 2, tension: 1,
+      chords: [[0, 3, 7], [1, 5, 8], [-2, 2, 5], [-4, 0, 3]],
+      pad:   { voice: 'pad', oct: -12, cutoff: [600, 1000, 1700] },
+      bass:  { voice: 'pulse', pattern: [[0, 2, 0], [3, 2, 0], [6, 2, 0], [8, 2, 12], [10, 2, 0], [12, 2, 7], [14, 2, 0]], cutoff: [600, 850, 1200] },
+      drums: { kick:  ['x.........x.....', 'x..x......x..x..', 'x..x..x...x..x.x'],
+               snare: ['................', '....x.......x...', '....x..x....x.xx'],
+               hat:   ['x...x...x...x...', 'x.x.x.x.x.x.x.x.', 'xxxxxxxxxxxxxxxx'],
+               tom:   ['................', '..............x.', '..........x.x.xx'] },
+      lead:  { voice: 'brass', oct: 12, span: 12, density: 0.7, rhythms: ['long', 'drive', 'call'], cutoff: [1400, 2000, 2800] },
+      arp:   { voice: 'arpSaw', oct: 12, rate: 1, cutoff: [1200, 1800, 2800] },
+      mix: [ { pad: 1,   bass: 0.55, drums: 0.3, lead: 0,   arp: 0 },
+             { pad: 0.9, bass: 1,    drums: 0.85, lead: 0.65, arp: 0.25 },
+             { pad: 1,   bass: 1,    drums: 1,    lead: 0.85, arp: 0.85 } ],
+    },
+    /* A boss, the carrier: A harmonic minor — Am, F, Dm, E; brass over a gallop. */
+    boss_b: {
+      bpm: 112, root: 45, scale: [0, 2, 3, 5, 7, 8, 11], bpc: 2, tension: 1,
+      chords: [[0, 3, 7], [-4, 0, 3], [5, 8, 12], [7, 11, 14]],
+      pad:   { voice: 'pad', oct: 12, cutoff: [600, 900, 1500] },
+      bass:  { voice: 'pulse', pattern: [[0, 1, 0], [1, 1, 0], [2, 2, 0], [4, 1, 0], [5, 1, 0], [6, 2, 12], [8, 1, 0], [9, 1, 0], [10, 2, 0], [12, 1, 0], [13, 1, 0], [14, 2, 7]], cutoff: [600, 800, 1100] },
+      drums: { kick:  ['x.....x.x.......', 'x..x..x.x..x..x.', 'x.xx..x.x.xx..x.'],
+               snare: ['........x.......', '....x.......x...', '....x.......x.xx'],
+               hat:   ['x...x...x...x...', 'x.x.x.x.x.x.x.x.', 'xxxxxxxxxxxxxxxx'],
+               tom:   ['................', '..............x.', '..........x.x.xx'] },
+      lead:  { voice: 'brass', oct: 24, span: 12, density: 0.7, rhythms: ['long', 'drive', 'whole'], cutoff: [1400, 1900, 2600] },
+      arp:   { voice: 'arpSaw', oct: 24, rate: 1, cutoff: [1200, 1800, 2800] },
+      mix: [ { pad: 1,   bass: 0.7, drums: 0.4, lead: 0.5,  arp: 0 },
+             { pad: 0.9, bass: 1,   drums: 0.9, lead: 0.7,  arp: 0.3 },
+             { pad: 1,   bass: 1,   drums: 1,   lead: 0.85, arp: 0.9 } ],
+    },
   };
+  /* THE PLAYLISTS (update261): what each mode the game asks for plays, in turn. The base opens on the map's own
+     song — the one jj likes — and goes on to its two of its own. */
+  const PLAYLISTS = {
+    explore: ['explore', 'explore_b', 'explore_c'],
+    base:    ['explore', 'base_a', 'base_b'],
+    station: ['station', 'station_b'],
+    combat:  ['combat', 'combat_b', 'combat_c'],
+    boss:    ['boss', 'boss_b'],
+  };
+  /** About this long a song, then the next of its mode (update261). */
+  const SONG_SECONDS = 150;
+  const _turn = {};                                  // mode → how many times it has started
+  function _trackFor(mode, advance) {
+    const list = PLAYLISTS[mode];
+    if (!list) return mode;
+    const n = _turn[mode] ?? 0;
+    if (advance) _turn[mode] = n + 1;
+    return list[n % list.length];
+  }
+  function _barsFor(def) { return Math.max(16, Math.round(SONG_SECONDS / (240 / def.bpm) / 8) * 8); }
   const LAYERS = ['pad', 'bass', 'drums', 'lead', 'arp'];
   const DRUM_HITS = ['kick', 'snare', 'hat', 'tom'];
 
@@ -780,6 +929,14 @@ const Audio = (() => {
         _tone({ freq: f, type: 'sawtooth', duration: dur, gain: 0.07 * vel, attack: 0.06, release: 0.12, destination: dest, when: t });
         _tone({ freq: f / 2, type: 'square', duration: dur, gain: 0.025 * vel, attack: 0.08, release: 0.12, destination: dest, when: t });
         break;
+      case 'glass':                                   // update261: a soft bell, a fifth and an octave in it
+        _tone({ freq: f, type: 'sine', duration: Math.max(0.4, dur), gain: 0.07 * vel, attack: 0.006, decay: 0.4, sustain: 0.3, release: 0.6, destination: dest, when: t });
+        _tone({ freq: f * 3, type: 'sine', duration: 0.35, gain: 0.012 * vel, attack: 0.003, decay: 0.12, sustain: 0.1, release: 0.25, destination: dest, when: t });
+        break;
+      case 'reed':                                    // update261: a breathy reed for the long lines
+        _tone({ freq: f, type: 'triangle', duration: dur, gain: 0.07 * vel, attack: 0.08, release: 0.2, detune: 3, destination: dest, when: t });
+        _tone({ freq: f, type: 'square', duration: dur, gain: 0.012 * vel, attack: 0.1, release: 0.2, detune: -3, destination: dest, when: t });
+        break;
       case 'arpSaw':
         _tone({ freq: f, type: 'sawtooth', duration: Math.min(dur, 0.16), gain: 0.045 * vel, attack: 0.003, release: 0.07, destination: dest, when: t });
         break;
@@ -891,7 +1048,8 @@ const Audio = (() => {
     const wasRunning = _musicRunning && !!_current();
     _musicMode    = mode;
     _musicRunning = true;
-    _tension      = _songDef(mode).tension;   // a new song starts at its own level
+    const track   = _trackFor(mode, true);   // the mode's next song (update261)
+    _tension      = _songDef(track).tension;   // a new song starts at its own level
     /* THE MUSIC SLIDER WAS DEAD (update42). This line used to read
        `musicGain.gain.value = 0.35` — a literal. Every mode change
        (menu → map → combat → boss, a dozen call sites) threw the
@@ -899,8 +1057,15 @@ const Audio = (() => {
        options screen kept drawing the value they had chosen. The
        slider looked like it worked and never did. */
     _restoreMusicGain();
-    _startSong(mode, wasRunning ? XFADE : 0.6);
+    _startSong(track, wasRunning ? XFADE : 0.6);
     if (!_musicTimer) _scheduleBeat();
+  }
+  /** The song has had its few minutes: the next one of the same mode comes in (update261). */
+  function _nextSong() {
+    if (!_musicRunning || !_musicMode || !PLAYLISTS[_musicMode] || PLAYLISTS[_musicMode].length < 2) return false;
+    const track = _trackFor(_musicMode, true);
+    _startSong(track, XFADE);
+    return track;
   }
 
   /** Put musicGain back where the player set it, killing any pending fade. */
@@ -934,6 +1099,9 @@ const Audio = (() => {
     _musicTimer = null;
     if (!_musicRunning || !ctx) return;
     const now = ctx.currentTime;
+    /* a song past its bars hands over to the next of its mode (update261) */
+    const cur = _current();
+    if (cur && !cur.file && !cur.fading && cur.step >= _barsFor(cur.def) * 16) _nextSong();
     _songs.slice().forEach(s => {
       if (s.dead) return;
       if (s.endAt <= now) { _killSong(s); return; }
@@ -995,7 +1163,7 @@ const Audio = (() => {
   function musicState() {
     const s = _current();
     return {
-      mode: _musicMode, running: _musicRunning, tension: _tension,
+      mode: _musicMode, running: _musicRunning, tension: _tension, track: s?.mode ?? null,
       live: _songs.filter(x => !x.dead).length,
       layers: s ? { ...s.target } : {},
       bpm: s ? s.def.bpm : null,
@@ -1257,6 +1425,7 @@ const Audio = (() => {
     stopMusic,
     setTension, getTension, musicState, composeBar, chordOf,
     songs: () => Object.keys(SONGS), songDef: (m) => SONGS[m] || null,
+    playlists: () => JSON.parse(JSON.stringify(PLAYLISTS)), nextSong: _nextSong, barsFor: (m) => _barsFor(_songDef(m)),   // update261
     setTrack, trackFor,
     stinger, stingers, stingerLog,
     setAmbience, ambience,

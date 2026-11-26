@@ -13208,7 +13208,7 @@ const BREAKS = [
   {
     name: "#172 a new song keeps the last fight's tension",
     file: F("audio.js"),
-    from: "    _tension      = _songDef(mode).tension;   // a new song starts at its own level\n",
+    from: "    _tension      = _songDef(track).tension;   // a new song starts at its own level\n",
     to:   "",
   },
   {
@@ -13250,8 +13250,8 @@ const BREAKS = [
   {
     name: "#172 drums on the calm map",
     file: F("audio.js"),
-    from: "      mix: [ { pad: 1,   bass: 0.55, drums: 0,    lead: 0.8, arp: 0 },",
-    to:   "      mix: [ { pad: 1,   bass: 0.55, drums: 0.4,  lead: 0.8, arp: 0 },",
+    from: "      mix: [ { pad: 1,   bass: 0.55, drums: 0,    lead: 0.8, arp: 0 },\n             { pad: 1,   bass: 0.8,  drums: 0.55, lead: 0.8, arp: 0.5 },",
+    to:   "      mix: [ { pad: 1,   bass: 0.55, drums: 0.4,  lead: 0.8, arp: 0 },\n             { pad: 1,   bass: 0.8,  drums: 0.55, lead: 0.8, arp: 0.5 },",
   },
   {
     name: "#172 a named track cannot be taken back",
@@ -19249,6 +19249,36 @@ const BREAKS = [
     file: F('renderer.js'),
     from: "      const fullRank = `${F.rank} \u00b7 ${F.lvl} \u00b7 ${F.corp}${bld !== 'average' ? ` \u00b7 ${bld.toUpperCase()}` : ''}`;",
     to:   "      const fullRank = `${F.rank} \u00b7 ${F.lvl} \u00b7 ${F.corp}`;",
+  },
+  {
+    name: "#261 every visit plays the mode's first song",
+    file: F('audio.js'),
+    from: "    const track   = _trackFor(mode, true);   // the mode's next song (update261)",
+    to:   "    const track   = mode;",
+  },
+  {
+    name: "#261 a song plays for ever",
+    file: F('audio.js'),
+    from: "    if (cur && !cur.file && !cur.fading && cur.step >= _barsFor(cur.def) * 16) _nextSong();\n",
+    to:   "",
+  },
+  {
+    name: "#261 the base plays the map's music",
+    file: F('game.js'),
+    from: "Audio.playMusic('base');                // the base's own playlist (update261)",
+    to:   "Audio.playMusic('explore');",
+  },
+  {
+    name: "#261 the base has one song",
+    file: F('audio.js'),
+    from: "    base:    ['explore', 'base_a', 'base_b'],",
+    to:   "    base:    ['explore'],",
+  },
+  {
+    name: "#261 a hand-over starts the same song again",
+    file: F('audio.js'),
+    from: "    const track = _trackFor(_musicMode, true);\n    _startSong(track, XFADE);",
+    to:   "    const track = _trackFor(_musicMode, false);\n    _startSong(track, XFADE);",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

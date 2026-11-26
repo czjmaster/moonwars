@@ -47611,6 +47611,42 @@ section('446. jj 20.11 / 25.11 (260): weight — a full stomach puts it on, hung
 })();
 
 // ============================================================
+section('447. jj 25.11 (261): more music — a playlist a mode, the base its own, a song hands over to the next after a few minutes');
+// ============================================================
+(function testUpdate261Music() {
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const sb = loadEngine();
+  const { Audio } = sb;
+  Audio.init();
+  const PL = Audio.playlists(), songs = Audio.songs();
+  ok(['explore', 'base', 'station', 'combat', 'boss'].every(m => (PL[m]?.length ?? 0) >= 2), `every mode has two songs or more (${Object.entries(PL).map(([m, l]) => `${m} ${l.length}`).join(', ')})`);
+  ok(Object.values(PL).flat().every(k => songs.includes(k)), 'every song on a playlist is a song');
+  ok(PL.base[0] === 'explore' && PL.base.length === 3, 'the base opens on the song jj likes, then two of its own');
+  const sig = (k) => { const d = Audio.songDef(k); return `${d.root}|${d.scale}|${JSON.stringify(d.chords)}|${d.bpm}`; };
+  ok(Object.values(PL).every(l => new Set(l.map(sig)).size === l.length), 'no two songs of a mode share key, chords and tempo');
+  const voices = Object.values(PL).flat().map(k => Audio.songDef(k).lead.voice);
+  ok(voices.includes('glass') && voices.includes('reed'), 'two new voices on the lead: glass and reed');
+  ok(/case 'glass':/.test(read('js/audio.js')) && /case 'reed':/.test(read('js/audio.js')), '…played by the band');
+
+  /* the turn: each visit to a mode starts on its next song */
+  const seen = [];
+  for (let i = 0; i < 4; i++) { Audio.playMusic('combat'); seen.push(Audio.musicState().track); Audio.playMusic('explore'); }
+  ok(seen.join(',') === 'combat,combat_b,combat_c,combat', `a fight, another fight, another: a different song each time (${seen.join(', ')})`);
+  ok(Audio.musicState().track !== null && Audio.musicState().mode === 'explore', 'the mode stays what the game asked for; the track is the song');
+  Audio.playMusic('base');
+  const t0 = Audio.musicState().track;
+  const t1 = Audio.nextSong(); const t2 = Audio.nextSong();
+  ok(t0 === 'explore' && t1 === 'base_a' && t2 === 'base_b' && Audio.musicState().mode === 'base', `at the base, the songs hand over: ${t0} → ${t1} → ${t2}`);
+  ok(Audio.musicState().live <= 2, 'a hand-over crossfades — never three songs at once');
+  const bars = Audio.barsFor('explore'), secs = bars * 240 / Audio.songDef('explore').bpm;
+  ok(secs > 120 && secs < 180, `a song plays about two and a half minutes before the next (${bars} bars, ${Math.round(secs)} s)`);
+  ok(/cur\.step >= _barsFor\(cur\.def\) \* 16\) _nextSong\(\)/.test(read('js/audio.js')), 'the beat clock hands over by itself');
+  Audio.stopMusic(0);
+  ok(/Audio\.playMusic\('base'\);/.test(read('js/game.js')), 'the base plays its own playlist');
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

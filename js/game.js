@@ -33,7 +33,7 @@ const Game = (() => {
 const MENU_ITEMS = ['ENTER BASE','OPTIONS','NEW GAME'];
 /* THE BUILD ON THE TITLE SCREEN (update254, jj 23.11): 0.<update> until the release (then 1.0.0). Raised with
    every package. */
-const GAME_VERSION = '0.260';
+const GAME_VERSION = '0.261';
 /* THE TITLE SCREEN (update123, jj: "co do menu zrób to, co napisałeś"):
    your own hull drifting past the Moon with its roof on, a line under
    ENTER BASE saying what is waiting in there, and NEW GAME — behind a
@@ -7953,7 +7953,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     }
     BaseScreen.open();
     STATE = 'base'; _beginFade();
-    Audio.playMusic('explore');
+    Audio.playMusic('base');                // the base's own playlist (update261)
   }
 
   function _updateBase(dt) {
