@@ -1099,10 +1099,13 @@ class CrewMember {
     const pad = Math.min(CrewMember.MELEE_INSET, Math.max(0, room.w / 2 - 1));
     const L = room.x + pad, U = Math.max(1, room.w - pad * 2);
     const cx = L + (pair + 0.5) * U / P;
-    const gap = Math.max(4, Math.min(CrewMember.DUEL_GAP, U / P / 2 - 2));
+    /* EVENLY ACROSS THE FLOOR (update262, jj 26.11: „jak dużo załogantów walczy, to wchodzą na siebie"): a pair used to take
+       nearly its whole strip, so the man of one pair stood 4 px from the man of the next. A quarter of the strip each side
+       spaces every man in the room the same. */
+    const gap = Math.max(4, Math.min(CrewMember.DUEL_GAP, U / P / 4));
     const dir = this.isPlayer ? -1 : 1;          // ours left, theirs right
     const x = Utils.clamp(cx + dir * (gap + rank * CrewMember.DUEL_BACK), L, L + U);
-    return { x, pair, pairs: P, cx, partnerX: cx - dir * gap, lead: rank === 0, ours: this.isPlayer };
+    return { x, pair, pairs: P, cx, partnerX: cx - dir * gap, lead: rank === 0, rank, ours: this.isPlayer };
   }
 
   meleeTarget(ship, foes) {
@@ -1519,7 +1522,10 @@ class CrewMember {
         /* A KNIFE OR A FIST HAS TO BE AT ARM'S LENGTH (update194, jj: "ci, co
            walczą nożem, muszą zbliżyć się do przeciwnika"). Paired, he is; a
            gunman standing back at the wall he walks up to first. */
-        const reach = (typeof CrewArms !== 'undefined' ? CrewArms.CLOSE : 24);
+        /* …A HELPER STRIKES FROM BEHIND HIS MATE (update262, jj 26.11: „wchodzą na siebie i się trzęsą"): the spot put him a
+           step behind, the reach rule walked him a step forward — every frame, both. On his spot he is close enough. */
+        const reach0 = (typeof CrewArms !== 'undefined' ? CrewArms.CLOSE : 24);
+        const reach = spot ? Math.max(reach0, Math.abs(spot.x - spot.partnerX) + (spot.rank ?? 0) * CrewMember.DUEL_BACK + 4) : reach0;
         if (Math.abs(target.x - this.x) > reach) {
           const step = CrewMember.DUEL_GLIDE * 1.5 * dt;
           const want = target.x - Math.sign(target.x - this.x) * (reach - 6);
@@ -1554,12 +1560,22 @@ class CrewMember {
           this._updateMovement(dt, ship);
           return;
         }
-        if (room?.system && room.system.damagedLevels < room.system.level) {
+        this._smashing = false;
+        if (room?.system && room.system.damagedLevels < room.system.level && !this._waypoints.length) {
+          /* HE IS SEEN DOING IT, AND IT TAKES LONGER (update262, jj 26.11: „brakuje animacji rozwalania modułów przez załogantów
+             wroga i zwolnij tempo — za szybko"). A level every 5 s, with a green repair twinkle, read as nothing happening and
+             a module gone in no time. Now: he stands at the console swinging at it (the fight animation, a spark at his fist —
+             drawn in `draw`, no dice), and a level goes every SABOTAGE_SECONDS. Only standing still; walking through a room
+             breaks nothing. */
+          this._smashing = true;
+          this._facing = room.cx >= this.x ? 1 : -1;
+          this._setAnim('fight');
           this._sabT = (this._sabT ?? 0) + dt;
-          if (this._sabT >= 5) {
+          if (this._sabT >= CrewMember.SABOTAGE_SECONDS) {
             this._sabT = 0;
             room.system.damageLevel(1);
-            Particles.repairSparks?.(this.x, this.y - 8);
+            Particles.weld?.(this.x + this._facing * 10, this.y - 14, this._facing);   // the console gives
+            if (ship.isPlayer && typeof Audio !== 'undefined') Audio.sfx?.hullHit?.();
           }
         } else if (!this._waypoints.length && !this._ordered) {
           /* WHERE NEXT (update90b). The player saw a boarder land in an
@@ -1623,6 +1639,8 @@ class CrewMember {
    *  between two rooms. Pull whoever starts swinging clear of the edge
    *  before the first blow lands. */
   static get MELEE_INSET() { return 18; }
+  /** A boarder breaks one level of the module he stands in every this many seconds (update262 — it was 5). */
+  static get SABOTAGE_SECONDS() { return 9; }
 
   _stepInsideRoom(ship) {
     const room = ship?.getRoomById?.(this.roomId);
@@ -1960,7 +1978,11 @@ class CrewMember {
         const breach = ship.breaches.getBreachesInRoom(room.id)[0];
         if (breach) { this.assignTask(TASK.BREACH, breach); break; }
 
-        if (room.system && room.system.damagedLevels > 0) {
+        /* ONE MAN PER LEVEL OF DAMAGE ON THEIR SHIP (update262, jj 26.11: „jeden naprawia zawsze, drugi pomaga jak jest więcej do
+           naprawienia"). A hand walking back through a room where somebody is already mending a 1-level hit used to stop and join
+           him — two men tied up on one job. On our own ship it stays as it was: who stands where is the player's call. */
+        const helpers = ship.isPlayer ? 0 : ship.crew.filter(c => c !== this && c.alive && c.task === TASK.REPAIR && c.taskTarget === room.id).length;
+        if (room.system && room.system.damagedLevels > 0 && helpers < Math.ceil(room.system.damagedLevels)) {
           this.assignTask(TASK.REPAIR, room.id);
           break;
         }
@@ -2465,6 +2487,27 @@ class CrewMember {
     }
 
     ctx.restore();
+    /* SMASHING THE CONSOLE (update262): a flash at his fist on every other beat of the swing, orange sparks off it — the
+       clock and his id pick them, so two men are not in step and nothing rolls a die. */
+    if (this._smashing && !this.dead) {
+      const t = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000 + (Number(this.id) || 0) * 0.37;
+      const beat = t * 2.2, ph = beat - Math.floor(beat);
+      if (ph < 0.35) {
+        const f = this._facing ?? 1, hx = this.x + f * 11, hy = this.y - 15 - (this.anim?.native ? 4 : 0);
+        const a = 1 - ph / 0.35;
+        ctx.save();
+        ctx.globalAlpha = a;
+        ctx.fillStyle = '#fff4c8';
+        ctx.beginPath(); ctx.arc(hx, hy, 2.5 + 2 * a, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#ff8a1e'; ctx.lineWidth = 1;
+        const seed = Math.floor(beat) * 7.13;
+        for (let k = 0; k < 4; k++) {
+          const ang = -Math.PI / 2 + f * (0.4 + k * 0.45) + Math.sin(seed + k) * 0.3, len = 4 + 6 * (1 - a) + k;
+          ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(hx + Math.cos(ang) * len * f, hy + Math.sin(ang) * len + (1 - a) * 4); ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
     /* His weapon, his shot and his charges are NOT drawn here (update174):
        Ship.draw paints them in a pass over the whole crew, or a duel
        partner drawn after him would cover the blade in his hand. */

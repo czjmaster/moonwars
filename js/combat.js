@@ -848,6 +848,7 @@ class Combat {
       const projs = w.fire(fromX, fromY, toX, toY, false);
       if (atF) projs.forEach(p => { p.atFighter = atF; });
       Particles.muzzleFlash?.(fromX, fromY, -1, '#ff8a6a');
+      if (projs.length) enemy.noteGunHeat?.(w);                 // the shot warms her core (update262)
       this._projectiles.push(...projs);
       /* SECTOR 1 SPREADS ITS FIRE (update218, jj: "zmniejsz trochę trudność w 1 sektorze … większość strzałów
          przeciwnika nie jest w ten sam moduł, zmienia się co strzał"): after every shot the next goes to another room */
@@ -1034,7 +1035,10 @@ class Combat {
       // Someone already on it? Skip.
       /* a man on it who cannot get there (the lift died under him) is not „on it" — he goes back to his post */
       enemy.crew.forEach(c => {
-        if (c.alive && c.task === TASK.REPAIR && c.taskTarget === sys.roomId && c.roomId !== sys.roomId && !reach(c, sys.cx, sys.cy)) {
+        /* …but a man already WALKING there is on it (update262, jj 26.11: „komputer wysyła 2 załogantów do jednej naprawy na 1 lev"):
+           half way to the lift the route lookup fails while the cabin is moving, he lost his job, walked on anyway and a second man
+           was sent after him. Only a man with no route at all is stuck. */
+        if (c.alive && c.task === TASK.REPAIR && c.taskTarget === sys.roomId && c.roomId !== sys.roomId && !c._waypoints?.length && !c._ridingShaft && !reach(c, sys.cx, sys.cy)) {
           c.task = TASK.IDLE; c.taskTarget = null;
         }
       });
@@ -1192,6 +1196,7 @@ class Combat {
     if (target.isFighter) projs.forEach(p => { p.atFighter = target; });   // it follows her (update252)
     if (typeof Finish !== 'undefined') Finish.noteShot();   // WHITE FLAG's held fire (update182)
     Particles.muzzleFlash?.(fromX, fromY, 1, '#ffd780');
+    if (projs.length) this.playerShip.noteGunHeat?.(weapon);   // the shot warms her core (update262)
     this._projectiles.push(...projs);
 
     // FTL XP: crew manning THIS gun's module learn from each shot

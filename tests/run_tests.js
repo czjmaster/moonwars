@@ -1485,8 +1485,8 @@ section('22. Stations stock shields; raiders bite back');
   };
   const s1 = count(1);
   ok(s1.shields === 0, `NO raider in sector 1 has shields (${s1.shields}/300)`);
-  ok(s1.cloak > 60, `but plenty still run a cloak (${s1.cloak}/300)`);
-  ok(s1.plain > 60, `and plenty are bare (${s1.plain}/300)`);
+  ok(s1.cloak === 0, `nor a cloak — an ordinary ship of sector 1 runs bare (update262, jj 26.11) (${s1.cloak}/300)`);
+  ok(s1.plain === 300, `so every one is bare (${s1.plain}/300)`);
 
   const s2 = count(2);
   ok(s2.shields > 80, `sector 2 brings shields back (${s2.shields}/300)`);
@@ -1502,10 +1502,12 @@ section('22. Stations stock shields; raiders bite back');
   // The AI actually USES a cloak when it is hurting. Spawn raiders the
   // normal way until one rolls a cloak, so this exercises the real path.
   let enemy = null;
+  Save.updateRun({ sector: 2 });                        // sector 1 has none any more (update262)
   for (let i = 0; i < 200 && !enemy; i++) {
     T._spawnEnemy('normal');
     if (T.enemyShip.getSystem('cloaking')) enemy = T.enemyShip;
   }
+  Save.updateRun({ sector: 1 });
   ok(!!enemy, 'a cloaked raider turns up within a reasonable number of spawns');
   const player = new Ship('frigate', true, 80, 120);
   player._allocateDefaultPower();
@@ -44285,8 +44287,8 @@ section('414. Artillery is the launcher bay (228, jj 10.11): missile and torpedo
   ok(Ship.isOrdnance('missile_basic') && Ship.isOrdnance('torpedo_launcher') && !Ship.isOrdnance('laser_basic') && !Ship.isOrdnance('cannon_basic') && !Ship.isOrdnance('beam_basic'),
      'launchers: the missile launcher and the torpedo tube (the mass driver is a gun)');
   ok(/launcher/i.test(SYSTEM_DEFS.artillery.description) && !/beam/i.test(SYSTEM_DEFS.artillery.description), 'the artillery module says what it is for');
-  const sh = new Ship('frigate', true, 100, 100);
-  ok(sh.weaponRooms.length === 1 && sh.weaponModuleCount === 1 && sh.weapons[0]?.defKey === 'laser_basic', 'a frigate: one weapons module, her laser in it');
+  const sh = new Ship('hauler', true, 100, 100);   // update262: the frigate's roof has one socket — a hull with room for three bays
+  ok(sh.weaponRooms.length === 1 && sh.weaponModuleCount === 1 && sh.weapons[0]?.defKey === 'laser_basic', 'a hauler: one weapons module, her laser in it');
   /* no artillery: a launcher has nowhere to go */
   ok(sh.scrapWeapon(0) && sh.installWeapon('missile_basic', 0) === false && sh.freeBayFor('missile_basic') === -1, 'a launcher will not go into the weapons module');
   ok(/Artillery module/.test(sh.noBayReason('missile_basic')), `…and the hull says why (${sh.noBayReason('missile_basic')})`);
@@ -44312,8 +44314,8 @@ section('414. Artillery is the launcher bay (228, jj 10.11): missile and torpedo
   ok(sh.weapons[2] === tube && tube.slot === 2 && sh.weapons[1] == null && sh.weapons[0].defKey === 'laser_heavy', 'the tube moved with its bay (slot 3), the new module is free');
   ok(sh.freeBayFor('laser_burst') === 1 && sh.installWeapon('laser_burst', 1), '…and takes a gun');
   const big = new Ship('isis', true, 0, 0);
-  ok(big.addModule('artillery') && big.addModule('weapons') && big.addModule('weapons') && big.weaponModuleCount === 3 && big.rooms.some(r => r.type === 'empty') && !big.addModule('weapons'),
-     'three weapons modules still the limit (the artillery bay is not one of them)');
+  ok(big.weaponModuleCap === 3 && big.addModule('artillery') && big.addModule('weapons') && big.gunBayCount === 3 && big.rooms.some(r => r.type === 'empty') && !big.addModule('weapons'),
+     'her roof\'s three sockets are the limit, the artillery bay one of them (update262)');
   ok(!sh.addModule('artillery'), 'one artillery module a hull');
   /* it survives the save */
   const back = Ship.deserialise(sh.serialise(), true, 0, 0);
@@ -44338,7 +44340,7 @@ section('414. Artillery is the launcher bay (228, jj 10.11): missile and torpedo
   ok(M && M.missiles.length === 8 && M.torpedoes.length === 4, 'the drawn bay: eight cradles, four torpedo cells');
   ok(M.missiles.every((r, i) => !i || r.x > M.missiles[i - 1].x + M.missiles[i - 1].w) && M.missiles.every(r => r.y + r.h < 42 && r.x > 4 && r.x + r.w < 31), 'the cradles side by side in the rack');
   ok(M.torpedoes.every(r => r.x > 5 && r.x + r.w < 30.5 && r.y > 18 && r.y + r.h < 29.5), 'the cells in the frame over it');
-  const sh2 = new Ship('frigate', true, 100, 100); sh2.addModule('artillery');
+  const sh2 = new Ship('thoth', true, 100, 100); sh2.addModule('artillery');   // update262: the frigate's one socket is taken — an Aquarius hull with three
   const bay = sh2.rooms.find(r => r.type === 'artillery');
   ok(sh2.magazineView(bay) === null, 'no drawn bay loaded (the tests): no magazine drawn');
   const realSrc = Assets.source, realGet = Assets.get, fake = { width: 400, height: 200 };
@@ -47644,6 +47646,129 @@ section('447. jj 25.11 (261): more music — a playlist a mode, the base its own
   ok(/cur\.step >= _barsFor\(cur\.def\) \* 16\) _nextSong\(\)/.test(read('js/audio.js')), 'the beat clock hands over by itself');
   Audio.stopMusic(0);
   ok(/Audio\.playMusic\('base'\);/.test(read('js/game.js')), 'the base plays its own playlist');
+})();
+
+// ============================================================
+section('448. jj 26.11 (262): the yard pick stays, BUY on the price; no cloak in sector 1; one man a repair; the cat runs from a fight; guns by roof sockets; a fight in a crowd stands still; a boarder is seen breaking a module, slower; the core heats again');
+// ============================================================
+(function testUpdate262() {
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  /* 1. the yard */
+  const BS = read('js/basescreen.js');
+  ok(/case 'yardView': _yardPick = arg; break;/.test(BS), 'a hull picked in the yard stays picked — a second click no longer puts yours back');
+  ok(/can \? `BUY · \$\{t\.def\.cost\} CC`/.test(BS), 'the price button says BUY');
+  /* 2. sector 1 */
+  ok(/if \(sector === 1\) return 'empty';\s+\/\/ nor a cloak/.test(read('js/game.js')), 'sector 1: an ordinary ship rolls no cloak (counted in section 21)');
+  /* 3. one man a repair */
+  {
+    const sb = loadEngine(); const { Ship, CombatManager, Save } = sb;
+    Save.load(); Save.startRun();
+    let worst = 0, mended = 0;
+    for (let run = 0; run < 3; run++) {
+      const P = new Ship('frigate', true, 80, 120), E = new Ship('enemy_gunship', false, 850, 120);
+      [P, E].forEach(s => s._allocateDefaultPower());
+      sb.makeStartingCrew().forEach(c => P.addCrew(c)); sb.makeEnemyCrew(4).forEach(c => E.addCrew(c));
+      P.assignStations(); E.assignStations(); P.weapons = []; E.weapons = [];
+      const step = () => quiet(() => { P.update(0.05); E.update(0.05); CombatManager.update(0.05); });
+      quiet(() => CombatManager.begin(P, E, 'normal'));
+      for (let i = 0; i < 400; i++) step();
+      const sys = E.systems.find(s => s.type === 'engines'); sys.damagedLevels = 1;
+      const on = new Set();
+      for (let i = 0; i < 400 && sys.damagedLevels > 0; i++) { step(); E.crew.forEach(c => { if (c.alive && c.task === 'repair' && c.taskTarget === sys.roomId) on.add(c); }); }
+      worst = Math.max(worst, on.size); if (sys.damagedLevels <= 0) mended++;
+      quiet(() => CombatManager.end());
+    }
+    ok(worst === 1, `their engines hit by one level: one man goes, never two (most at once: ${worst})`);
+    ok(mended === 3, `and he mends it (${mended}/3)`);
+    ok(/!c\._waypoints\?\.length && !c\._ridingShaft && !reach\(c, sys\.cx, sys\.cy\)/.test(read('js/combat.js')), 'a man already on his way to the lift keeps his job');
+    /* in the room: a second hand walking through does not join a 1-level job on their ship */
+    const E = new Ship('enemy_frigate', false, 0, 0); E.crew.length = 0;
+    const sysE = E.getSystem('engines'), R = E.getRoomById(sysE.roomId);
+    const mk = () => { const c = sb.makeEnemyCrew(1)[0]; E.addCrew(c); c.roomId = R.id; c.x = R.cx; c.y = E.floorWalkY(R.floor, R.cy); c.inRoom = true; c.task = 'idle'; return c; };
+    sysE.damagedLevels = 1;
+    const a = mk(); a.assignTask('repair', R.id);
+    const b = mk(); quiet(() => b.update(0.05, E));
+    ok(b.task !== 'repair', `a second man in the room leaves a 1-level job to the first (${b.task})`);
+    sysE.damagedLevels = 2; b.task = 'idle'; quiet(() => b.update(0.05, E));
+    ok(b.task === 'repair', 'two levels: he helps');
+  }
+  /* 4. the cat */
+  {
+    const sb = loadEngine(); const { Ship, Save } = sb; Save.load(); Save.startRun();
+    const P = new Ship('frigate', true, 80, 120); P._allocateDefaultPower(); P.crew.length = 0;
+    const room = P.getRoomById('r_crew1');
+    const cat = sb.makeCat('black'); P.addCrew(cat); cat.x = room.cx; cat.y = P.floorWalkY(room.floor, room.cy); cat.roomId = room.id; cat.hp = cat.maxHp = 1e5;
+    const t = sb.makeEnemyCrew(1)[0]; P.addCrew(t); t.isPlayer = false; t.x = room.cx + 10; t.y = cat.y; t.roomId = room.id; t.hp = 1e5;
+    quiet(() => { for (let i = 0; i < 10; i++) P.update(0.05); });
+    ok(cat._animState === 'fight', 'test setup: the cat in a fight');
+    const dest = P.rooms.find(r => r.id !== room.id && r.floor === room.floor);
+    cat._ordered = true; cat.moveToOnShip(P, dest.cx, P.floorWalkY(dest.floor, dest.cy)); cat._disengage = { from: cat.roomId };
+    let left = false; quiet(() => { for (let i = 0; i < 400 && !left; i++) { P.update(0.05); if (cat.roomId !== room.id && cat.inRoom !== false) left = true; } });
+    ok(left, `ordered out, she walks out of the fight (${cat.roomId})`);
+    ok(/if \(m\.isPet\) \{[\s\S]{0,700}?m\._disengage = \{ from: m\.roomId \};\s+return;/.test(read('js/game.js')), 'our order gives the cat the same way out as a man');
+  }
+  /* 5. guns by the roof's sockets */
+  {
+    const sb = loadEngine(); const { Ship, HULL_SHAPED } = sb;
+    const fr = new Ship('frigate', true, 0, 0);
+    ok(fr.weaponModuleCap === HULL_SHAPED.frigate.rings.length && fr.weaponModuleCap === 1, `the frigate's roof has one socket (${fr.weaponModuleCap})`);
+    ok(!fr.addModule('weapons') && !fr.addModule('artillery') && fr.gunBayCount === 1, 'so no second weapons module, nor an artillery bay');
+    const th = new Ship('thoth', true, 0, 0);
+    ok(th.weaponModuleCap === 3 && th.addModule('weapons') && th.addModule('artillery') && th.gunBayCount === 3 && !th.addModule('weapons'), 'three sockets: three bays, the artillery one of them');
+    const back = Ship.deserialise(th.serialise(), true, 0, 0);
+    ok(back.gunBayCount === 3, 'a save keeps what she had');
+    const en = new Ship('enemy_frigate', false, 0, 0);
+    ok(en.weaponModuleCap === 3, 'an enemy hull keeps the old cap');
+    ok(/sh\.roofHasRoom \? sh\.roofHasRoom\(\)/.test(read('js/portview.js')) && /ship\.roofHasRoom \? ship\.roofHasRoom\(\)/.test(read('js/ui.js')), 'the yard offers a mount only while there is a socket');
+  }
+  /* 6. a crowded fight */
+  {
+    const sb = loadEngine(); const { Ship, CrewMember } = sb;
+    const P = new Ship('frigate', true, 80, 120);
+    const R = P.getRoomById('r_crew1');
+    const man = (isPlayer, dx) => { const c = new CrewMember({ isPlayer, race: isPlayer ? 'aquarius' : 'hostile' });
+      c.roomId = R.id; c.homeRoomId = R.id; c.x = R.cx + dx; c.y = P.floorWalkY(R.floor, R.cy); c.inRoom = true; P.addCrew(c, true); c.maxHp = c.hp = 1e6; return c; };
+    const rows = [];
+    for (const [a, b] of [[3, 3], [3, 1], [2, 3]]) {
+      P.crew.length = 0; const ms = [];
+      for (let i = 0; i < a; i++) ms.push(man(true, -8 + i * 5)); for (let i = 0; i < b; i++) ms.push(man(false, 8 - i * 5));
+      quiet(() => { for (let i = 0; i < 100; i++) P.update(0.05); });
+      const last = ms.map(m => m.x), dir = ms.map(() => 0); let flips = 0;
+      quiet(() => { for (let i = 0; i < 100; i++) { P.update(0.05); ms.forEach((m, j) => { const d = Math.sign(Math.round((m.x - last[j]) * 100)); if (d && dir[j] && d !== dir[j]) flips++; if (d) dir[j] = d; last[j] = m.x; }); } });
+      const xs = ms.map(m => m.x).sort((p, q) => p - q); let gap = 999; for (let i = 1; i < xs.length; i++) gap = Math.min(gap, xs[i] - xs[i - 1]);
+      rows.push({ k: `${a}v${b}`, flips, gap: Math.round(gap) });
+    }
+    ok(rows.every(r => r.flips === 0), `nobody shakes on the spot (${rows.map(r => `${r.k}: ${r.flips}`).join(', ')})`);
+    ok(rows.every(r => r.gap >= 6), `nobody stands inside another (${rows.map(r => `${r.k}: ${r.gap} px`).join(', ')})`);
+  }
+  /* 7. a boarder at a console */
+  {
+    const sb = loadEngine(); const { Ship, CrewMember } = sb;
+    ok(CrewMember.SABOTAGE_SECONDS === 9, 'a level every 9 s (it was 5)');
+    const P = new Ship('frigate', true, 80, 120); P._allocateDefaultPower(); P.crew.length = 0;
+    const sys = P.getSystem('engines'), R = P.getRoomById(sys.roomId);
+    const b = new CrewMember({ isPlayer: false, race: 'hostile' }); b.roomId = R.id; b.x = R.cx; b.y = P.floorWalkY(R.floor, R.cy); b.inRoom = true; P.addCrew(b, true); b.hp = b.maxHp = 1e6;
+    quiet(() => { for (let i = 0; i < 2; i++) P.update(0.05); });
+    ok(b._smashing && b._animState === 'fight', 'he stands at it swinging — the animation, not a twinkle');
+    const d0 = sys.damagedLevels;
+    quiet(() => { for (let i = 0; i < 160; i++) P.update(0.05); });
+    ok(sys.damagedLevels === d0, `eight seconds: nothing broken yet (${sys.damagedLevels})`);
+    quiet(() => { for (let i = 0; i < 30; i++) P.update(0.05); });
+    ok(sys.damagedLevels === d0 + 1, `at nine, one level (${d0} → ${sys.damagedLevels})`);
+    ok(/if \(this\._smashing && !this\.dead\)/.test(read('js/crew.js')), 'the sparks at his fist are drawn by the man');
+  }
+  /* 8. the core */
+  {
+    const sb = loadEngine(); const { Ship, REACTOR_HEAT_CONFIG: H } = sb;
+    ok(H.heatBands[0].perSec === 100 / 150 && H.heatBands[2].perSec === 100 / 480 && H.consoleCoolPerSec === 0.06, 'hotter bands, and the console takes less off');
+    const P = new Ship('frigate', true, 80, 120); P.reactorHeat = 10;
+    P.noteGunHeat(P.weapons[0]);
+    ok(Math.abs(P.reactorHeat - (10 + H.shotHeatPerPower * P.weapons[0].powerCost)) < 1e-9, `a volley warms the core by its gun's power (10 → ${P.reactorHeat})`);
+    const C = read('js/combat.js');
+    ok(/enemy\.noteGunHeat\?\.\(w\)/.test(C) && /this\.playerShip\.noteGunHeat\?\.\(weapon\)/.test(C), 'both sides, every volley');
+  }
 })();
 
 // ============================================================

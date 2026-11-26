@@ -1129,12 +1129,12 @@ const UI = (() => {
         hdr(left, '◆ NEW MODULES', '#1aff8c');
         const offers = [];
         (s.stock.newModules ?? []).forEach((item, i) => {
-          if (!item.sold && !ship.getSystem(item.type)) {
+          if (!item.sold && !ship.getSystem(item.type) && !(item.type === 'artillery' && ship.roofHasRoom && !ship.roofHasRoom())) {   // update262
             offers.push({ kind: 'new', idx: i, label: SYSTEM_DEFS[item.type].label,
               desc: SYSTEM_DEFS[item.type].description, cost: s.moduleCost(item) });
           }
         });
-        if (ship.weaponModuleCount < 3) {
+        if (ship.roofHasRoom ? ship.roofHasRoom() : ship.weaponModuleCount < 3) {   // one per socket on her roof (update262)
           offers.push({ kind: 'wpn', label: `Weapon Module ${ship.weaponModuleCount + 1}`,
             desc: 'A fresh gun mount — one weapon per module.',
             cost: s.weaponModuleCost(ship) });

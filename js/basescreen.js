@@ -597,7 +597,7 @@ const BaseScreen = (() => {
         _clampScroll(); _syncStore(); break;
       }
       /* A HULL FOR SALE, LOOKED AT IN THE CRADLE (update154); again = back to yours. */
-      case 'yardView': _yardPick = (_yardPick === arg) ? null : arg; break;
+      case 'yardView': _yardPick = arg; break;      // it stays on view — a second click does not put yours back (update262; ESC does)
       /* A BUILDING'S UPGRADE, BOUGHT IN THAT BUILDING (update154, jj: "upgrade budynków
          powinien być możliwy jak jesteśmy w danym budynku … coś w stylu potwierdzenia") */
       case 'upgradeAsk': {
@@ -2068,7 +2068,7 @@ const BaseScreen = (() => {
       T(_clip(ctx, t.def.label, t.w - 14), t.x + 7, t.y + 92, '#c8e8ff', 12, 'left', true);
       const br = { x: t.x + 5, y: t.y + t.h - 26, w: t.w - 10, h: 21 };
       box(br, can ? 'rgba(26,255,140,0.08)' : 'rgba(10,10,16,0.8)', can ? '#1aff8c' : '#3a3a4a');
-      T(can ? `${t.def.cost} CC` : `${t.def.cost} CC — short`, br.x + br.w / 2, br.y + 14, can ? '#1aff8c' : '#6a6a7a', 10, 'center', true);
+      T(can ? `BUY · ${t.def.cost} CC` : `${t.def.cost} CC — short`, br.x + br.w / 2, br.y + 14, can ? '#1aff8c' : '#6a6a7a', 10, 'center', true);   // say what it is (update262)
       _zones.push({ ...t, act: 'yardView', arg: t.key });
     });
     R.arrows.forEach(a => {

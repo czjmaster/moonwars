@@ -5284,14 +5284,14 @@ const BREAKS = [
   {
     name: '#92 heating from 70% load',
     file: F('ship.js'),
-    from: '    { load: 0.80, perSec: 100 / 600 },  // 80–89%   → ~10 min',
-    to:   '    { load: 0.70, perSec: 100 / 600 },  // 80–89%   → ~10 min',
+    from: '    { load: 0.80, perSec: 100 / 480 },  // 80–89%   → ~8 min',
+    to:   '    { load: 0.70, perSec: 100 / 480 },  // 80–89%   → ~8 min',
   },
   {
     name: '#92 100% load heats like 90%',
     file: F('ship.js'),
-    from: '    { load: 1.00, perSec: 100 / 180 },  // 100%     → full in ~3 min',
-    to:   '    { load: 1.00, perSec: 100 / 360 },  // 100%     → full in ~3 min',
+    from: '    { load: 1.00, perSec: 100 / 150 },  // 100%     → full in ~2.5 min',
+    to:   '    { load: 1.00, perSec: 100 / 300 },  // 100%     → full in ~2.5 min',
   },
   {
     name: '#92 the reactor never cools',
@@ -7851,7 +7851,7 @@ const BREAKS = [
   {
     name: "#105 the console cools a lot",
     file: F('ship.js'),
-    from: "  consoleCoolPerSec: 0.1,",
+    from: "  consoleCoolPerSec: 0.06,",
     to:   "  consoleCoolPerSec: 0.5,",
   },
   {
@@ -11699,7 +11699,7 @@ const BREAKS = [
   {
     name: "#151 no gun mount for sale",
     file: F("portview.js"),
-    from: "    if (sh.weaponModuleCount < 3) {\n      out.push({ key: 'wpn'",
+    from: "    if (sh.roofHasRoom ? sh.roofHasRoom() : sh.weaponModuleCount < 3) {   // one per socket on her roof (update262)\n      out.push({ key: 'wpn'",
     to: "    if (false) {\n      out.push({ key: 'wpn'",
   },
   {
@@ -15759,8 +15759,8 @@ const BREAKS = [
   {
     name: "#194 our order at home does not break him out",
     file: F("game.js"),
-    from: "      if (m.roomId !== room.id) m._disengage = { from: m.roomId };",
-    to:   "      void 0;",
+    from: "      if (m.roomId !== room.id) m._disengage = { from: m.roomId };\n      // Sending crew INTO",
+    to:   "      void 0;\n      // Sending crew INTO",
   },
   {
     name: "#194 the pistol through the door",
@@ -19279,6 +19279,84 @@ const BREAKS = [
     file: F('audio.js'),
     from: "    const track = _trackFor(_musicMode, true);\n    _startSong(track, XFADE);",
     to:   "    const track = _trackFor(_musicMode, false);\n    _startSong(track, XFADE);",
+  },
+  {
+    name: "#262 a second click puts yours back",
+    file: F('basescreen.js'),
+    from: "      case 'yardView': _yardPick = arg; break;",
+    to:   "      case 'yardView': _yardPick = _yardPick === arg ? null : arg; break;",
+  },
+  {
+    name: "#262 the price button does not say BUY",
+    file: F('basescreen.js'),
+    from: "    T(can ? `BUY \u00b7 ${t.def.cost} CC` :",
+    to:   "    T(can ? `${t.def.cost} CC` :",
+  },
+  {
+    name: "#262 cloaks back in sector 1",
+    file: F('game.js'),
+    from: "    if (sector === 1) return 'empty';               // nor a cloak",
+    to:   "    if (false) return 'empty';               // nor a cloak",
+  },
+  {
+    name: "#262 a walker to the lift loses his job",
+    file: F('combat.js'),
+    from: "c.roomId !== sys.roomId && !c._waypoints?.length && !c._ridingShaft && !reach(c, sys.cx, sys.cy)) {",
+    to:   "c.roomId !== sys.roomId && !reach(c, sys.cx, sys.cy)) {",
+  },
+  {
+    name: "#262 every hand in the room joins a 1-level job",
+    file: F('crew.js'),
+    from: "helpers < Math.ceil(room.system.damagedLevels)) {",
+    to:   "true) {",
+  },
+  {
+    name: "#262 the cat stays in the fight",
+    file: F('game.js'),
+    from: "        if (m.roomId !== room.id) m._disengage = { from: m.roomId };\n        return;",
+    to:   "        return;",
+  },
+  {
+    name: "#262 the roof does not limit the bays",
+    file: F('ship.js'),
+    from: "  roofHasRoom() { return this._restoring || this.gunBayCount < this.weaponModuleCap; }",
+    to:   "  roofHasRoom() { return true; }",
+  },
+  {
+    name: "#262 a save loses a bay past the cap",
+    file: F('ship.js'),
+    from: "    ship._restoring = true;                                      // what she had",
+    to:   "    ship._restoring = false;                                      // what she had",
+  },
+  {
+    name: "#262 pairs take their whole strip",
+    file: F('crew.js'),
+    from: "Math.min(CrewMember.DUEL_GAP, U / P / 4));",
+    to:   "Math.min(CrewMember.DUEL_GAP, U / P / 2 - 2));",
+  },
+  {
+    name: "#262 a helper walks up past his spot",
+    file: F('crew.js'),
+    from: "    const reach = spot ? Math.max(reach0,",
+    to:   "    const reach = false ? Math.max(reach0,",
+  },
+  {
+    name: "#262 sabotage as fast as before",
+    file: F('crew.js'),
+    from: "  static get SABOTAGE_SECONDS() { return 9; }",
+    to:   "  static get SABOTAGE_SECONDS() { return 5; }",
+  },
+  {
+    name: "#262 the boarder is not seen at it",
+    file: F('crew.js'),
+    from: "          this._smashing = true;\n",
+    to:   "\n",
+  },
+  {
+    name: "#262 a volley does not warm the core",
+    file: F('ship.js'),
+    from: "    this.reactorHeat = Utils.clamp((this.reactorHeat ?? 0) + REACTOR_HEAT_CONFIG.shotHeatPerPower",
+    to:   "    this.reactorHeat = Utils.clamp((this.reactorHeat ?? 0) + 0 * REACTOR_HEAT_CONFIG.shotHeatPerPower",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

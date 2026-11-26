@@ -939,10 +939,11 @@ const PortView = (() => {
     const out = [];
     (s.stock?.newModules ?? []).forEach((m, i) => {
       if (m.sold || sh.getSystem(m.type)) return;
+      if (m.type === 'artillery' && !sh.roofHasRoom?.()) return;   // no socket on her roof for it (update262)
       const d = SYSTEM_DEFS[m.type] ?? {};
       out.push({ key: `m${i}`, kind: 'new', idx: i, type: m.type, label: d.label ?? m.type, line: d.description ?? '', cost: s.moduleCost(m), maxLevel: d.maxLevel ?? 1 });
     });
-    if (sh.weaponModuleCount < 3) {
+    if (sh.roofHasRoom ? sh.roofHasRoom() : sh.weaponModuleCount < 3) {   // one per socket on her roof (update262)
       out.push({ key: 'wpn', kind: 'wpn', type: 'weapons', label: `Weapon Mount ${sh.weaponModuleCount + 1}`,
                  line: 'A fresh gun mount — one weapon per module.', cost: s.weaponModuleCost(sh), maxLevel: SYSTEM_DEFS.weapons?.maxLevel ?? 8 });
     }

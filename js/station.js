@@ -788,6 +788,8 @@ class Station {
     if (!item || item.sold) return { ok: false, message: 'Item not available.' };
     if (ship.getSystem(item.type))
       return { ok: false, message: 'Already installed on this hull.' };
+    if (item.type === 'artillery' && !ship.roofHasRoom())
+      return { ok: false, message: `Her roof takes ${ship.weaponModuleCap} gun${ship.weaponModuleCap === 1 ? '' : 's'} — no socket left.` };   // update262
     if (!ship.rooms.some(r => r.type === 'empty'))
       return { ok: false, message: 'No empty room to convert.' };
     const cost = this.moduleCost(item);
@@ -922,6 +924,8 @@ class Station {
     if (!item || item.sold) return { ok: false, message: 'Item not available.' };
     if (ship.getSystem(item.type))
       return { ok: false, message: 'Already installed on this hull.' };
+    if (item.type === 'artillery' && !ship.roofHasRoom())
+      return { ok: false, message: `Her roof takes ${ship.weaponModuleCap} gun${ship.weaponModuleCap === 1 ? '' : 's'} — no socket left.` };   // update262
     const cost = this.moduleCost(item);
     if (run.scrap < cost) return { ok: false, message: 'Insufficient CC.' };
     if (!ship.addModuleAt(item.type, roomId))
@@ -936,8 +940,8 @@ class Station {
   buyWeaponModuleAt(ship, run, roomId) {
     const closed = this.refusal();
     if (closed) return { ok: false, message: closed };
-    if (ship.weaponModuleCount >= 3)
-      return { ok: false, message: 'Hull supports at most 3 weapon modules.' };
+    if (!ship.roofHasRoom())
+      return { ok: false, message: `Her roof takes ${ship.weaponModuleCap} gun${ship.weaponModuleCap === 1 ? '' : 's'} — no socket left.` };
     const cost = this.weaponModuleCost(ship);
     if (run.scrap < cost) return { ok: false, message: 'Insufficient CC.' };
     if (!ship.addModuleAt('weapons', roomId))
@@ -954,8 +958,8 @@ class Station {
   buyWeaponModule(ship, run) {
     const closed = this.refusal();
     if (closed) return { ok: false, message: closed };
-    if (ship.weaponModuleCount >= 3)
-      return { ok: false, message: 'Hull supports at most 3 weapon modules.' };
+    if (!ship.roofHasRoom())
+      return { ok: false, message: `Her roof takes ${ship.weaponModuleCap} gun${ship.weaponModuleCap === 1 ? '' : 's'} — no socket left.` };
     if (!ship.rooms.some(r => r.type === 'empty'))
       return { ok: false, message: 'No empty room to convert.' };
     const cost = this.weaponModuleCost(ship);

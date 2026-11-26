@@ -33,7 +33,7 @@ const Game = (() => {
 const MENU_ITEMS = ['ENTER BASE','OPTIONS','NEW GAME'];
 /* THE BUILD ON THE TITLE SCREEN (update254, jj 23.11): 0.<update> until the release (then 1.0.0). Raised with
    every package. */
-const GAME_VERSION = '0.261';
+const GAME_VERSION = '0.262';
 /* THE TITLE SCREEN (update123, jj: "co do menu zrób to, co napisałeś"):
    your own hull drifting past the Moon with its roof on, a line under
    ENTER BASE saying what is waiting in there, and NEW GAME — behind a
@@ -2430,6 +2430,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         m._ordered = true;
         m.moveToOnShip(_playerShip, room.cx,
                        _playerShip.floorWalkY(room.floor, room.cy));
+        /* …AND OUT OF A FIGHT, THE SAME AS A MAN (update262, jj 26.11: „kota można zaznaczyć i dać do innego modułu podczas walki —
+           jak zaczął walczyć, to zginął, nie mogłem go wycofać"). The disengage flag was set below, after her early return. */
+        if (m.roomId !== room.id) m._disengage = { from: m.roomId };
         return;
       }
       const [tx, ty] = _playerShip.stationSlot(room, picks[i]);
@@ -8864,7 +8867,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     // first sector is where the player learns the controls; it should
     // not also be the hardest wall they meet.
     if (_first) return 'empty';                     // the first fight: nothing in the spare bay (update233)
-    if (sector === 1) return roll < 0.45 ? 'cloak' : 'empty';
+    if (sector === 1) return 'empty';               // nor a cloak on an ordinary ship (update262, jj 26.11) — the roll is still spent
       if (sector === 2) return roll < 0.50 ? 'shields' : roll < 0.75 ? 'cloak' : 'empty';
       return roll < 0.60 ? 'shields' : roll < 0.90 ? 'cloak' : 'empty';
     })();

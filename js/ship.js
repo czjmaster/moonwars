@@ -62,9 +62,11 @@ const GRAVITY_CONFIG = {
  * Rates are in heat-percent per second. Every number is here. */
 const REACTOR_HEAT_CONFIG = {
   heatBands: [                          // highest load first
-    { load: 1.00, perSec: 100 / 180 },  // 100%     → full in ~3 min
-    { load: 0.90, perSec: 100 / 360 },  // 90–99%   → ~6 min
-    { load: 0.80, perSec: 100 / 600 },  // 80–89%   → ~10 min
+    /* HOTTER AGAIN (update262, jj 26.11: „temperatura reaktora przestała być problemem praktycznie"): 3 / 6 / 10 min were
+       longer than most fights, and the man at the console took most of the slow band away. */
+    { load: 1.00, perSec: 100 / 150 },  // 100%     → full in ~2.5 min
+    { load: 0.90, perSec: 100 / 300 },  // 90–99%   → ~5 min
+    { load: 0.80, perSec: 100 / 480 },  // 80–89%   → ~8 min
   ],
   coolBands: [                          // most free first
     { free: 0.50, perSec: 100 / 150 },  // 50%+ free → empty in ~2.5 min
@@ -78,7 +80,10 @@ const REACTOR_HEAT_CONFIG = {
      at 0.17/s and 100% at 0.56/s, so he slows a hot core, holds a warm
      one, and cools a 70–79% one slowly; he never replaces taking power
      off. Both sides. */
-  consoleCoolPerSec: 0.1,
+  consoleCoolPerSec: 0.06,              // update262: 0.1 → 0.06
+  /* EVERY VOLLEY WARMS HER (update262): heat per unit of the gun's power, each time it fires. A long fight on a full
+     reactor runs hot; a gun left cold does not. Both sides. */
+  shotHeatPerPower: 1.0,
   thermal: [                            // by reactor level: heat gain multiplier
     { upTo: 8,  mult: 1.00 },
     { upTo: 12, mult: 0.95 },
@@ -4263,6 +4268,16 @@ class Ship {
   }
   /** How many WEAPONS modules (the hull takes three; the artillery bay is not one of them). */
   get weaponModuleCount() { return this.rooms.filter(r => r.type === 'weapons').length; }
+  /** Every bay that puts a gun on her roof — the weapons modules and the artillery bay (update262). */
+  get gunBayCount() { return this.rooms.filter(r => r.type === 'weapons' || r.type === 'artillery').length; }
+  /** HOW MANY GUN BAYS HER ROOF TAKES (update262, jj 26.11: „jeżeli statek ma 2 sloty na broń na dachu, to max 2 moduły broni"):
+   *  one per socket ring drawn on her roof. A hull with no picture to count, and every enemy hull, keep the old cap of three. */
+  get weaponModuleCap() {
+    if (!this.isPlayer) return 3;
+    return HULL_SHAPED[this.layoutKey]?.rings?.length || 3;
+  }
+  /** Room on her roof for one more gun bay? (a save being loaded is let through — it already had it) */
+  roofHasRoom() { return this._restoring || this.gunBayCount < this.weaponModuleCap; }
 
   /** A launcher: fires missiles or torpedoes (update228). The mass driver eats missiles too, but it is a gun. */
   static isOrdnance(defKey) {
@@ -4383,8 +4398,9 @@ class Ship {
   addModule(type) {
     type = systemType(type);      // an old save may still say 'brig'
     if (!SYSTEM_DEFS[type]) return false;
-    if (type === 'weapons') {
-      if (this.weaponModuleCount >= 3) return false;
+    if (type === 'weapons' || type === 'artillery') {
+      if (!this.roofHasRoom()) return false;                     // the roof's sockets (update262)
+      if (type === 'artillery' && this.getSystem(type)) return false;
     } else if (this.getSystem(type)) {
       return false;   // only one cloak / repair bay etc.
     }
@@ -4414,8 +4430,9 @@ class Ship {
   addModuleAt(type, roomId) {
     type = systemType(type);      // an old save may still say 'brig'
     if (!SYSTEM_DEFS[type]) return false;
-    if (type === 'weapons') {
-      if (this.weaponModuleCount >= 3) return false;
+    if (type === 'weapons' || type === 'artillery') {
+      if (!this.roofHasRoom()) return false;                     // the roof's sockets (update262)
+      if (type === 'artillery' && this.getSystem(type)) return false;
     } else if (this.getSystem(type)) {
       return false;
     }
@@ -5378,6 +5395,13 @@ class Ship {
     const cool  = items.filter(it => it.def?.tag === 'cool').length;
     const C = REACTOR_HEAT_CONFIG.cargo;
     return cores * C.corePerSec - cool * C.coolerPerSec;
+  }
+
+  /** A gun of hers just fired (update262): its share of heat into the core. */
+  noteGunHeat(weapon) {
+    if (!this.reactor || this.isPreview) return;
+    const pw = weapon?.powerCost ?? weapon?.def?.power ?? 1;
+    this.reactorHeat = Utils.clamp((this.reactorHeat ?? 0) + REACTOR_HEAT_CONFIG.shotHeatPerPower * Math.max(1, pw), 0, 100);
   }
 
   reactorHeatRate() {
@@ -9217,10 +9241,12 @@ class Ship {
 
     // Re-apply purchased modules IN ORDER before restoring systems so
     // the systems array lines up index-for-index with the save.
+    ship._restoring = true;                                      // what she had, she keeps (update262)
     (data.extraModules ?? []).forEach(e => {
       if (typeof e === 'string') ship.addModule(e);
       else ship.addModuleAt(e.type, e.roomId) || ship.addModule(e.type);
     });
+    ship._restoring = false;
 
     data.systems.forEach((sd, i) => {
       const sys = ship.systems[i];
