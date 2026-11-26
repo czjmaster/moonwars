@@ -47984,6 +47984,83 @@ section('451. jj 26.11 (265): the faces — one layer of hair on top, lips in th
 })();
 
 // ============================================================
+section('452. jj 26.11 (266): the Phoenix hulls\' engine pods whole again (no holes, no chewed lower half, every colouring); Aquarius — the piston in the navy of its mount; the GPT sheets for its own doors and tubes fit the game\'s doors');
+// ============================================================
+(function testUpdate266() {
+  const fs = require('fs'), path = require('path');
+  const ROOT6 = path.join(__dirname, '..');
+  const read = (f) => fs.readFileSync(path.join(ROOT6, f), 'utf8');
+  const { readPng } = require('./pngread');
+  /* the pods: every see-through pixel of a pod's half whose mirror in the other half is solid is a hole the cut left */
+  const T = read('tools/phoenix_fix/fix_engines.py');
+  const R = +T.match(/^R = (\d+)/m)[1], SOLID = +T.match(/^SOLID = (\d+)/m)[1];
+  const pods = [...T.matchAll(/'(\w+)':\s*\((\d+), \[([\d., ]+)\]\)/g)].map(m => ({ key: m[1], x1: +m[2], cs: m[3].split(',').map(Number) }));
+  ok(pods.length === 4 && pods.map(p => p.key).join() === 'osiris,enemy_gunship,enemy_raider,enemy_sopdet', `the four Phoenix hulls with engine pods (${pods.map(p => p.key)})`);
+  let worst = 0, files = 0, solid = 0;
+  for (const P of pods) for (const suf of ['', '_roof', '_enemy', '_enemy_roof']) {
+    const img = readPng(path.join(ROOT6, 'art', `hull_${P.key}${suf}.png`)); if (!img) continue; files++;
+    const flip = suf.startsWith('_enemy'), A = (x, y) => img.at(flip ? img.w - 1 - x : x, y)[3];
+    let holes = 0;
+    for (const cy of P.cs) {
+      const c = Math.round(cy);
+      for (let d = 1; d <= R; d++) for (let x = 0; x < P.x1; x++) {
+        const lo = A(x, c + d), hi = A(x, c - d);
+        if ((lo < SOLID) !== (hi < SOLID)) holes++;
+        if (lo >= SOLID) solid++;
+      }
+    }
+    worst = Math.max(worst, holes);
+  }
+  ok(files === 16 && worst === 0, `every picture of the four (${files}: open, roof, theirs mirrored): no pod with a hole or a chewed half (${worst})`);
+  ok(solid > 16 * 2 * 40 * 30, `and the pods are there, solid (${solid} px)`);
+  ok(/\[:, ::-1\]/.test(T) && /flip = suf\.startswith\('_enemy'\)/.test(T), 'their colouring faces the other way: mended mirrored');
+
+  /* Aquarius's piston: the mount's navy */
+  const sb = loadEngine();
+  const { DockArt, Door } = sb;
+  const fills = [];
+  const ctx = new Proxy({}, { get: (o, k) => k in o ? o[k] : (() => {}), set: (o, k, v) => { if (k === 'fillStyle') fills.push(v); o[k] = v; return true; } });
+  DockArt.drawStrut(ctx, 100, 0, 90, 64, 'aquarius');
+  ok(fills.includes('#2c3f5c') && fills.includes('#466080') && !fills.includes('#3c4a5c') && !fills.includes('#2c5a8c'),
+     `the code's piston in the navy of the drawn mount, not the old grey-blue (${[...new Set(fills)].slice(0, 5)})`);
+  const bay = readPng(path.join(ROOT6, 'art', 'gear_aquarius_bay.png'));
+  {
+    let n = 0, r = 0, g = 0, b = 0;
+    for (let y = 0; y < bay.h; y++) for (let x = 0; x < bay.w; x++) { const p = bay.at(x, y); if (p[3] > 200) { r += p[0]; g += p[1]; b += p[2]; n++; } }
+    ok(b / n > r / n + 15 && b / n > 60, `(the mount is navy: mean ${Math.round(r / n)},${Math.round(g / n)},${Math.round(b / n)})`);
+  }
+
+  /* the sheets for GPT: their boxes are the game's doors and tubes, cut at Terra's density */
+  const G = read('tools/aquarius_v23/guides.py'), C = read('tools/aquarius_v23/cut.py');
+  const dict = (name) => Object.fromEntries([...G.match(new RegExp(`^${name} = \\{([\\s\\S]*?)\\}`, 'm'))[1].matchAll(/'(\w+)': \((\d+), (\d+), (\d+), (\d+)\)/g)]
+    .map(m => [m[1], { w: +m[4], h: +m[5] }]));
+  const D = dict('DOOR'), AIR = dict('AIR'), TU = dict('TUBES');
+  const fits = (S, Gd) => S.head.w === Gd.W && S.head.h === Gd.HEAD && S.sill.w === Gd.W && S.sill.h === Gd.SILL &&
+                          S.leaf_top.w === Gd.LEAF_W && S.leaf_bot.w === Gd.LEAF_W && S.leaf_top.h === 17 && S.leaf_bot.h === 17;
+  ok(fits(D, Door.ART), `the inner door's guide: head ${D.head.w}x${D.head.h}, sill ${D.sill.w}x${D.sill.h}, leaves ${D.leaf_top.w}x17 — Door.ART`);
+  ok(fits(AIR, Door.ART_AIR), `the airlock's guide: head ${AIR.head.w}x${AIR.head.h}, sill ${AIR.sill.w}x${AIR.sill.h}, leaves ${AIR.leaf_top.w}x17 — Door.ART_AIR`);
+  ok([1, 2, 3].every(i => Math.abs(TU['tube' + i].w / 64 - DockArt.TUBE.W[i - 1]) < 1e-9 && TU['tube' + i].h === 30), 'the three tubes: 22 / 16 / 10 of the 64 bay, 30 long (DockArt.TUBE)');
+  ok(/cut\(s, box\(D, G\['DOOR_K'\], n\), D\[n\]\[2\], D\[n\]\[3\], 4, f'\{pre\}\{n\}_aquarius'\)/.test(C) && /T\[2\], T\[3\], 3, f'gear_aquarius_tube\{i\}'/.test(C),
+     'cut at 4 px a unit as Terra\'s doors (the tubes at 3, as Terra\'s), under the names the game looks for first');
+  const dims = ['door_head_terra', 'door_leaf_top_terra', 'door_sill_terra'].map(n => readPng(path.join(ROOT6, 'art', n + '.png')));
+  ok(dims[0].w === D.head.w * 4 && dims[0].h === D.head.h * 4 && dims[1].w === D.leaf_top.w * 4 && dims[2].h === D.sill.h * 4, 'the same size as Terra\'s files');
+  /* they take over by themselves once cut */
+  {
+    const A = sb.Assets, realHas = A.has, realGet = A.get, realSource = A.source, fakes = new Map();
+    ['head', 'sill', 'leaf_top', 'leaf_bot'].forEach(p => fakes.set(`door_${p}_aquarius`, { width: 1, height: 1, n: `door_${p}_aquarius` }));
+    [1, 2, 3].forEach(i => fakes.set(`gear_aquarius_tube${i}`, { width: 1, height: 1, n: `gear_aquarius_tube${i}` }));
+    A.has = n => fakes.has(n) || realHas(n); A.get = n => fakes.has(n) ? fakes.get(n) : realGet(n); A.source = n => fakes.has(n) ? 'file' : realSource(n);
+    try {
+      const art = Door.art('aquarius', false), air = Door.art('aquarius', true), tubes = DockArt.tubeArt('aquarius');
+      ok(art && art.head.n === 'door_head_aquarius' && art.bot.n === 'door_leaf_bot_aquarius', 'Aquarius\'s own doors drawn once they are in art/');
+      ok(air && air.head.n === 'door_head_aquarius' && air.G.W === Door.ART.W && air.G.LEAF_W === Door.ART.LEAF_W, '(its airlock the inner door\'s until its own come)');
+      ok(tubes && tubes.map(t => t.n).join() === 'gear_aquarius_tube1,gear_aquarius_tube2,gear_aquarius_tube3', 'and its piston of three drawn tubes');
+    } finally { A.has = realHas; A.get = realGet; A.source = realSource; }
+  }
+  ok(/const GAME_VERSION = '0\.266';/.test(read('js/game.js')) && JSON.parse(read('art/manifest.json')).version === 'update266', 'version 0.266, the art\'s update266');
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

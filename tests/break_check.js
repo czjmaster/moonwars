@@ -19544,6 +19544,32 @@ const BREAKS = [
     from: "    for (let r = 0; r < rim; r++) m = step(m, false);",
     to:   "    for (let r = 0; r < 0; r++) m = step(m, false);",
   },
+  /* ── update266: jj 26.11 — Phoenix's engine pods (art: the pixel check has no text to revert), Aquarius's piston
+     colour and its GPT sheets ── */
+  {
+    name: "#266 Aquarius's piston grey-blue again",
+    file: F('dockart.js'),
+    from: "    aquarius: { tube: '#2c3f5c', lit: '#86aac0', dark: '#0a101f', collar: '#466080', collarLit: '#a8c8dc', lamp: '#5fe8d8' },",
+    to:   "    aquarius: { tube: '#3c4a5c', lit: '#9ab4cc', dark: '#18202c', collar: '#2c5a8c', collarLit: '#7fb0e0', lamp: '#5fe8d8' },",
+  },
+  {
+    name: "#266 the inner door's guide a head too wide",
+    file: path.join(ROOT, 'tools', 'aquarius_v23', 'guides.py'),
+    from: "    'head': (90, 110, 8, 16), 'sill': (90, 520, 8, 4),",
+    to:   "    'head': (90, 110, 9, 16), 'sill': (90, 520, 8, 4),",
+  },
+  {
+    name: "#266 the airlock's guide with the inner door's leaves",
+    file: path.join(ROOT, 'tools', 'aquarius_v23', 'guides.py'),
+    from: "'leaf_top': (330, 110, 8, 17), 'leaf_bot': (520, 110, 8, 17)}",
+    to:   "'leaf_top': (330, 110, 6, 17), 'leaf_bot': (520, 110, 6, 17)}",
+  },
+  {
+    name: "#266 the tubes cut at the doors' density",
+    file: path.join(ROOT, 'tools', 'aquarius_v23', 'cut.py'),
+    from: "T[2], T[3], 3, f'gear_aquarius_tube{i}'",
+    to:   "T[2], T[3], 4, f'gear_aquarius_tube{i}'",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

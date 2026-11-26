@@ -338,7 +338,9 @@ const DockArt = (() => {
      top or above the bay. `w` is her pad's width: the tubes are its share. */
   const STRUT_COL = {
     terra:    { tube: '#3a3f47', lit: '#8a929e', dark: '#1a1d22', collar: '#c87a3a', collarLit: '#f0a868', lamp: '#1aff8c' },
-    aquarius: { tube: '#3c4a5c', lit: '#9ab4cc', dark: '#18202c', collar: '#2c5a8c', collarLit: '#7fb0e0', lamp: '#5fe8d8' },
+    /* update266 (jj 26.11: „Aquarius — tłoki zawieszenia, kolor"): the navy of its drawn mount (gear_aquarius_bay), not
+       the old grey-blue — until GPT's own three tubes come (tools/aquarius_v23: gear_aquarius_tube1-3 take over by themselves) */
+    aquarius: { tube: '#2c3f5c', lit: '#86aac0', dark: '#0a101f', collar: '#466080', collarLit: '#a8c8dc', lamp: '#5fe8d8' },
     phoenix:  { tube: '#2a2526', lit: '#7a6e6e', dark: '#110e0e', collar: '#b82a22', collarLit: '#ff6a50', lamp: '#ffb020' },
     pegasus:  { tube: '#4a5a6c', lit: '#c8d8e8', dark: '#1c2430', collar: '#7a9ab4', collarLit: '#d8ecff', lamp: '#6ed7ff' },
   };

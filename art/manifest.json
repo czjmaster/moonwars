@@ -44,7 +44,7 @@
     "\"version\": goes on every file's address (art/x.png?v=<version>), so a browser that kept",
     "an older picture fetches the new one. Bump it with every update that changes art (update241)."
   ],
-  "version": "update255",
+  "version": "update266",
   "sprites": [
     "icon_reactor",
     "icon_shields",
