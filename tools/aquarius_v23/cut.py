@@ -27,8 +27,17 @@ def sheet(p):
     m = (a[..., 0] > 170) & (a[..., 2] > 170) & (a[..., 1] < 120)
     m |= nd.binary_dilation(m, iterations=2) & (a[..., 0] > a[..., 1] + 40) & (a[..., 2] > a[..., 1] + 40)
     return Image.fromarray(np.dstack([np.where(m[..., None], 0, a), np.where(m, 0, 255)]).astype('uint8'))
+PAD = 12
+def fit(s, b):
+    """GPT draws a part a few pixels over its field (26.11: the tubes' bottom rings): the drawn part's own box,
+    looked for within PAD of the field"""
+    x0, y0, x1, y1 = (int(v) for v in b)
+    A = np.array(s)[max(0, y0 - PAD):y1 + PAD, max(0, x0 - PAD):x1 + PAD, 3] > 0
+    ys, xs = np.where(A)
+    if not len(xs): return (x0, y0, x1, y1)
+    return (max(0, x0 - PAD) + xs.min(), max(0, y0 - PAD) + ys.min(), max(0, x0 - PAD) + xs.max() + 1, max(0, y0 - PAD) + ys.max() + 1)
 def cut(s, b, wu, hu, k, name):
-    im = s.crop(tuple(int(v) for v in b)).resize((wu * k, hu * k), Image.LANCZOS)
+    im = s.crop(fit(s, b)).resize((wu * k, hu * k), Image.LANCZOS)
     q = np.array(im); q[..., 3] = np.where(q[..., 3] < 128, 0, 255)
     Image.fromarray(q).save(os.path.join(ART, name + '.png')); return name
 def main(argv):

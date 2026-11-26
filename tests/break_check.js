@@ -16249,8 +16249,8 @@ const BREAKS = [
   {
     name: "#199 the bay open with the gear up",
     file: F("dockart.js"),
-    from: "      if (p > 0.002) {",
-    to:   "      if (true) {",
+    from: "      if (p > 0.002) {\n        if (bay) {",
+    to:   "      if (true) {\n        if (bay) {",
   },
   {
     name: "#199 the pad from the cutaway under the roof",
@@ -17807,8 +17807,8 @@ const BREAKS = [
   {
     name: "#235 an empty hole where the pad sat, no mount",
     file: F('dockart.js'),
-    from: "        const bay = P.well && bayArt(yard);",
-    to:   "        const bay = null;",
+    from: "      const bay = P.well && bayArt(yard);",
+    to:   "      const bay = null;",
   },
   {
     name: "#235 a pad does not know its bay",
@@ -19569,6 +19569,37 @@ const BREAKS = [
     file: path.join(ROOT, 'tools', 'aquarius_v23', 'cut.py'),
     from: "T[2], T[3], 3, f'gear_aquarius_tube{i}'",
     to:   "T[2], T[3], 4, f'gear_aquarius_tube{i}'",
+  },
+  /* ── update267: jj 26.11 — Aquarius's GPT doors and tubes; the foot and the piston behind her keel ── */
+  {
+    name: "#267 the foot and the piston over her hull again",
+    file: F('dockart.js'),
+    from: "    if (!LEG.BEHIND) return;\n    ctx.beginPath();",
+    to:   "    return;\n    ctx.beginPath();",
+  },
+  {
+    name: "#267 the piston not clipped",
+    file: F('dockart.js'),
+    from: "        ctx.save(); keelClip(ctx, P, w, floorY);\n        if (fTop > top) drawStrut",
+    to:   "        ctx.save();\n        if (fTop > top) drawStrut",
+  },
+  {
+    name: "#267 the clip at the top of her bay",
+    file: F('dockart.js'),
+    from: "ctx.rect(P.x0 - w, P.y1, w * 3, Math.max(1, floorY - P.y1 + 8));",
+    to:   "ctx.rect(P.x0 - w, P.y0, w * 3, Math.max(1, floorY - P.y0 + 8));",
+  },
+  {
+    name: "#267 the stowed foot drawn over her picture's pad",
+    file: F('dockart.js'),
+    from: "      if (p > 0.002) {                                    // stowed (0)",
+    to:   "      if (true) {                                    // stowed (0)",
+  },
+  {
+    name: "#267 the tubes cut at their fields, rings lost",
+    file: path.join(ROOT, 'tools', 'aquarius_v23', 'cut.py'),
+    from: "    im = s.crop(fit(s, b)).resize",
+    to:   "    im = s.crop(tuple(int(v) for v in b)).resize",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

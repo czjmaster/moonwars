@@ -42055,7 +42055,7 @@ section('385. Her own gear comes down, and the world rushes by (199, jj 5.11): t
     DockArt.drawPads(ctx, M, sh, 0, floor);
     let D = DockArt.gearDrawn();
     ok(D.every((g, i) => Math.abs(g.fBot - M.arms[i].pad.y1) < 1e-6), 'gear up: each pad where she has it');
-    ok(calls.length === NP && calls.every(c => c.length === 9 && c[0].n === 'hull_enemy_gunship'), 'drawn as the piece of her own picture, nothing else');
+    ok(calls.length === 0, 'stowed: nothing drawn over her — her picture has her pads (update267: the foot slides in behind her keel)');
     calls.length = 0;
     DockArt.drawPads(ctx, M, sh, 1, floor);
     D = DockArt.gearDrawn();
@@ -48057,7 +48057,87 @@ section('452. jj 26.11 (266): the Phoenix hulls\' engine pods whole again (no ho
       ok(tubes && tubes.map(t => t.n).join() === 'gear_aquarius_tube1,gear_aquarius_tube2,gear_aquarius_tube3', 'and its piston of three drawn tubes');
     } finally { A.has = realHas; A.get = realGet; A.source = realSource; }
   }
-  ok(/const GAME_VERSION = '0\.266';/.test(read('js/game.js')) && JSON.parse(read('art/manifest.json')).version === 'update266', 'version 0.266, the art\'s update266');
+  ok(/const GAME_VERSION = '0\.26[67]';/.test(read('js/game.js')) && /^update26[67]$/.test(JSON.parse(read('art/manifest.json')).version), 'version 0.266 (or later), the art\'s update266 (or later)');
+})();
+
+// ============================================================
+section('453. jj 26.11 (267): Aquarius\'s own doors, airlock and piston from GPT; the foot and the piston slide in behind her keel, the mount stays');
+// ============================================================
+(function testUpdate267() {
+  const fs = require('fs'), path = require('path');
+  const ROOT7 = path.join(__dirname, '..');
+  const read = (f) => fs.readFileSync(path.join(ROOT7, f), 'utf8');
+  const { readPng } = require('./pngread');
+  const art = (n) => readPng(path.join(ROOT7, 'art', n + '.png'));
+  /* the files */
+  const man = JSON.parse(read('art/manifest.json'));
+  const parts = ['head', 'sill', 'leaf_top', 'leaf_bot'];
+  const names = [...parts.map(p => `door_${p}_aquarius`), ...parts.map(p => `door_air_${p}_aquarius`), ...[1, 2, 3].map(i => `gear_aquarius_tube${i}`)];
+  ok(names.every(n => man.sprites.includes(n) && fs.existsSync(path.join(ROOT7, 'art', n + '.png'))), `the eleven in art/ and in the manifest (${names.filter(n => !man.sprites.includes(n))})`);
+  ok(man.version === 'update267' && /const GAME_VERSION = '0\.267';/.test(read('js/game.js')), 'version 0.267, the art\'s update267');
+  ok([...parts.map(p => [`door_${p}_aquarius`, `door_${p}_terra`]), ...parts.map(p => [`door_air_${p}_aquarius`, `door_air_${p}_terra`])]
+     .every(([a, t]) => { const A = art(a), T = art(t); return A.w === T.w && A.h === T.h; }), 'each the size of Terra\'s same part');
+  const T1 = art('gear_aquarius_tube1'), T3 = art('gear_aquarius_tube3');
+  ok(T1.w === 66 && T1.h === 90 && T3.w === 30, `the tubes at 3 px a unit: 22 x 30 and 10 x 30 (${T1.w}x${T1.h}, ${T3.w})`);
+  const stats = (n) => { const I = art(n); let k = 0, r = 0, b = 0, mag = 0; for (let y = 0; y < I.h; y++) for (let x = 0; x < I.w; x++) { const p = I.at(x, y); if (p[3] > 200) { k++; r += p[0]; b += p[2]; if (p[0] > 200 && p[2] > 200 && p[1] < 90) mag++; } } return { k, r: r / k, b: b / k, mag, I }; };
+  const S = names.map(stats);
+  ok(S.every(s => s.mag === 0), 'no magenta left in any of them');
+  ok(S.every(s => s.b > s.r + 10), `Aquarius\'s blue, not Terra\'s grey-brown (${S.map(s => Math.round(s.b - s.r))})`);
+  ok(S.every(s => s.k > s.I.w * s.I.h * 0.85), 'each fills its piece: whole, not a cut-off');
+  ok(/im = s\.crop\(fit\(s, b\)\)\.resize/.test(read('tools/aquarius_v23/cut.py')), 'cut at the drawn part\'s own box (GPT drew the tubes\' rings a little over their fields)');
+  /* the gear: the foot and the piston behind her keel */
+  const sb = loadEngine();
+  const { DockArt, Ship } = sb;
+  ok(DockArt.LEG.BEHIND === 1, 'the foot and the piston come out from behind her');
+  const realHas = sb.Assets.has, realGet = sb.Assets.get, realSource = sb.Assets.source, bayImg = { width: 192, height: 73, bay: true };
+  const HS = sb.HULL_SHAPED.thoth, hullImg = { width: HS.w, height: HS.h };
+  const ours = n => n === 'gear_aquarius_bay' || n === 'hull_thoth' || n === 'hull_thoth_roof';
+  sb.Assets.has = n => ours(n) || realHas(n);
+  sb.Assets.get = n => n === 'gear_aquarius_bay' ? bayImg : ours(n) ? hullImg : realGet(n);
+  sb.Assets.source = n => ours(n) ? 'file' : realSource(n);
+  try {
+  const sh = new Ship('thoth', true, 200, 100);
+  const M = DockArt.moorings(sh), floor = 900;
+  const mk = () => {
+    const log = [], stack = []; let clip = null, path = null;
+    const c = new Proxy({}, { get: (o, k) => {
+      if (k === 'save') return () => stack.push(clip);
+      if (k === 'restore') return () => { clip = stack.pop() ?? null; };
+      if (k === 'beginPath') return () => { path = null; };
+      if (k === 'rect') return (x, y, w, h) => { path = { x, y, w, h }; };
+      if (k === 'clip') return () => { clip = path; };
+      if (k === 'drawImage') return (...a) => log.push({ img: a[0], y: a.length === 9 ? a[6] : a[2], h: a.length === 9 ? a[8] : a[4], clip });
+      return k in o ? o[k] : (() => {});
+    }, set: (o, k, v) => { o[k] = v; return true; } });
+    return { c, log };
+  };
+  const A = M.arms[0].pad;
+  let R = mk(); DockArt.drawPads(R.c, M, sh, 0, floor);
+  ok(R.log.length === 0, 'stowed: nothing over her — her picture has the pads');
+  R = mk(); DockArt.drawPads(R.c, M, sh, 0.5, floor);
+  const D = DockArt.gearDrawn()[0];
+  const mount = R.log.filter(l => !l.clip), under = R.log.filter(l => l.clip);
+  ok(mount.length === M.arms.length && mount.every(l => l.img === bayImg && M.arms.some(a => Math.abs(l.y - a.pad.well.y0) < 1e-6)), `the mounts drawn whole in their bays, over her (${mount.length})`);
+  ok(under.length >= M.arms.length && under.every(l => M.arms.some(a => Math.abs(l.clip.y - a.pad.y1) < 1e-6)), 'the feet (and drawn tubes) only below the bottom of her bay');
+  ok(D.clip === A.y1 && D.fTop > A.y1, 'half way down: below her, whole');
+  { R = mk(); DockArt.drawPads(R.c, M, sh, 0.01, floor); const E = DockArt.gearDrawn()[0];
+    ok(E.fTop < A.y1 && E.fBot > A.y1 && R.log.filter(l => l.clip).every(l => Math.abs(l.clip.y - A.y1) < 1e-6 || M.arms.some(a => Math.abs(l.clip.y - a.pad.y1) < 1e-6)),
+       `just starting: the foot half out from behind her keel, its top hidden (top ${E.fTop.toFixed(1)} < keel ${A.y1.toFixed(1)} < bottom ${E.fBot.toFixed(1)})`); }
+  /* the code's telescope too (no tubes in the harness): its fills inside the same clip */
+  {
+    const fills = []; let clip = null, path = null; const stack = [];
+    const c = new Proxy({}, { get: (o, k) => {
+      if (k === 'save') return () => stack.push(clip);
+      if (k === 'restore') return () => { clip = stack.pop() ?? null; };
+      if (k === 'rect') return (x, y, w, h) => { path = { y }; };
+      if (k === 'clip') return () => { clip = path; };
+      if (k === 'fillRect') return (x, y, w, h) => { if (o.fillStyle === '#2c3f5c') fills.push(clip); };
+      return k in o ? o[k] : (() => {});
+    }, set: (o, k, v) => { o[k] = v; return true; } });
+    DockArt.drawPads(c, M, sh, 0.5, floor);
+    ok(fills.length > 0 && fills.every(cl => cl && M.arms.some(a => Math.abs(cl.y - a.pad.y1) < 1e-6)), `the piston behind her keel too (${fills.length} strokes)`);
+  }
+  } finally { sb.Assets.has = realHas; sb.Assets.get = realGet; sb.Assets.source = realSource; }
 })();
 
 // ============================================================

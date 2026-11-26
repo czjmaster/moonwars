@@ -44,7 +44,7 @@
     "\"version\": goes on every file's address (art/x.png?v=<version>), so a browser that kept",
     "an older picture fetches the new one. Bump it with every update that changes art (update241)."
   ],
-  "version": "update266",
+  "version": "update267",
   "sprites": [
     "icon_reactor",
     "icon_shields",
@@ -466,7 +466,18 @@
     "lift_terra_platform",
     "lift_terra_post1",
     "lift_terra_post2",
-    "lift_terra_post3"
+    "lift_terra_post3",
+    "door_head_aquarius",
+    "door_sill_aquarius",
+    "door_leaf_top_aquarius",
+    "door_leaf_bot_aquarius",
+    "door_air_head_aquarius",
+    "door_air_sill_aquarius",
+    "door_air_leaf_top_aquarius",
+    "door_air_leaf_bot_aquarius",
+    "gear_aquarius_tube1",
+    "gear_aquarius_tube2",
+    "gear_aquarius_tube3"
   ],
   "webp": [
     "bg_combat_far",
