@@ -19508,6 +19508,42 @@ const BREAKS = [
     from: "MAX_PICS, drawCatPortrait };",
     to:   "MAX_PICS };",
   },
+  {
+    name: "#265 the tint paints light rims again",
+    file: F('crewlayers.js'),
+    from: "    if (!mulInPlace(g, meta.cw, meta.ch, colour)) {",
+    to:   "    if (true) {",
+  },
+  {
+    name: "#265 the rim of the hair behind stays",
+    file: F('crewlayers.js'),
+    from: "          if ((vis[q] && !m[q]) || over) {",
+    to:   "          if (over) {",
+  },
+  {
+    name: "#265 a tuft over the hair in front stays",
+    file: F('crewlayers.js'),
+    from: "          const over = y < cw / 2 && topOf[x] >= 0 && y < topOf[x];",
+    to:   "          const over = false;",
+  },
+  {
+    name: "#265 pink lips",
+    file: F('crewlayers.js'),
+    from: "    return `rgb(${c(s[0] * 0.80 + 14)},${c(s[1] * 0.58)},${c(s[2] * 0.58)})`;",
+    to:   "    return 'rgb(239,101,177)';",
+  },
+  {
+    name: "#265 the helmet cut at the top",
+    file: F('crewlayers.js'),
+    from: "drawShield(g, P.cw / 2, P.ch * 0.45, P.cw * 0.43, 0);",
+    to:   "drawShield(g, P.cw / 2, P.ch * 0.43, P.cw * 0.47, 0);",
+  },
+  {
+    name: "#265 the opening erodes nothing",
+    file: F('crewlayers.js'),
+    from: "    for (let r = 0; r < rim; r++) m = step(m, false);",
+    to:   "    for (let r = 0; r < 0; r++) m = step(m, false);",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

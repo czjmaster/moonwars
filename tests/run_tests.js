@@ -47939,6 +47939,51 @@ section('450. jj 26.11 (264): the medbay\'s bed — one at a time, facing us, un
 })();
 
 // ============================================================
+section('451. jj 26.11 (265): the faces — one layer of hair on top, lips in the shade of his skin, no light or pink rims on the hair and beards, the helmet\'s rim inside the picture (the full check on the real sheets is in browser_test)');
+// ============================================================
+(function testUpdate265Faces() {
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const sb = loadEngine();
+  const { CrewLayers } = sb;
+  const L = read('js/crewlayers.js');
+  /* the rim of the hair behind: a thin band goes, a thick mass stays */
+  {
+    const w = 40, vis = new Uint8Array(w * w);
+    for (let y = 2; y < 4; y++) for (let x = 5; x < 35; x++) vis[y * w + x] = 1;        // a 2 px rim
+    for (let y = 15; y < 35; y++) for (let x = 5; x < 17; x++) vis[y * w + x] = 1;      // a 12 px lock of long hair
+    const m = CrewLayers.openMask(vis, w, 3);
+    let rim = 0, lock = 0; for (let y = 2; y < 4; y++) for (let x = 5; x < 35; x++) rim += m[y * w + x];
+    for (let y = 18; y < 32; y++) for (let x = 8; x < 14; x++) lock += m[y * w + x];
+    ok(rim === 0, `a rim of the hair behind 2 px thick is taken off (${rim} px left)`);
+    ok(lock === 14 * 6, `long hair behind, 12 px thick, keeps its body (${lock}/${14 * 6})`);
+    ok(/const over = y < cw \/ 2 && topOf\[x\] >= 0 && y < topOf\[x\];/.test(L), 'and on top nothing of it rises over the hair in front');
+    ok(/if \(\(vis\[q\] && !m\[q\]\) \|\| over\) \{/.test(L), 'the sheets are cut by both rules');
+  }
+  /* the lips */
+  {
+    const skin = '#d29a72', lip = CrewLayers.lipsOf(skin), [r, g, b] = lip.match(/\d+/g).map(Number);
+    ok(r < 0xd2 && g < 0x9a && b < 0x72 && r > g && r > b, `lips a darker, warmer shade of his skin, not pink (${skin} → ${lip})`);
+    const dark = CrewLayers.lipsOf('#5a3a28').match(/\d+/g).map(Number);
+    ok(dark[0] < 90 && dark[2] < 40, `a dark skin gets dark lips (${dark})`);
+    ok(/const lm = cleanSheets\(\)\?\.lips\?\.get\(ix\.head\[pl\.head\]\);/.test(L) && /B\[o \+ 3\] = 0;\n        \}\n        mg\.putImageData/.test(L),
+       'the pink is lifted out of the head and his own lips are painted over it');
+  }
+  /* the tint: pixel by pixel */
+  {
+    const px = new Uint8ClampedArray([200, 200, 200, 128, 255, 255, 255, 255]);
+    const g = { getImageData: () => ({ data: px }), putImageData: () => {} };
+    ok(CrewLayers.mulInPlace(g, 2, 1, '#804020') && px[0] === Math.round(200 * 0x80 / 255) && px[3] === 128 && px[4] === 0x80,
+       'a half-transparent edge pixel is multiplied by the colour like any other — no light rim');
+    ok(/if \(!mulInPlace\(g, meta\.cw, meta\.ch, colour\)\) \{/.test(L), 'every tinted part goes through it (the composite only where pixels cannot be read)');
+    ok(CrewLayers.rgbOf('#4db8ff').join() === '77,184,255', 'colours read as numbers');
+  }
+  /* the helmet's rim */
+  ok(/drawShield\(g, P\.cw \/ 2, P\.ch \* 0\.45, P\.cw \* 0\.43, 0\);/.test(L), 'the helmet\'s rim: centre 0.45, radius 0.43 — its top inside the picture');
+  ok(/faces\.rim === 0/.test(read('tests/browser_test.js')), 'the real sheets are checked in the browser: no pink, no rim, the helmet inside');
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

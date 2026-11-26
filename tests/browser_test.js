@@ -253,6 +253,37 @@ async function session1(browser) {
       ok(crew.loaded === 'object' && crew.view === 'back' && crew.w === 120 && crew.h === 102
          && crew.native?.w === 40 && crew.native?.h === 34 && crew.native?.smooth,
          `crewart.js hands a man at a console to the layers: from his back, 40 x 34 units at 3 px, smoothed (${crew.w}x${crew.h})`);
+      /* THE PORTRAIT SHEETS CLEANED (update265, jj 26.11): no pink lips, no pink fringe, no rim of the hair behind */
+      const faces = await page.evaluate(() => {
+        const C = CrewLayers.cleanSheets(); if (!C) return null;
+        const P = CREW2P, W = C.fixed.width, d = C.fixed.getContext('2d').getImageData(0, 0, W, C.fixed.height).data;
+        const t = C.tint.getContext('2d').getImageData(0, 0, W, C.tint.height).data;
+        const at = (i) => [(i % P.cols) * P.cw, Math.floor(i / P.cols) * P.cw];
+        const pinkIn = (i) => { const [x0, y0] = at(i); let n = 0; for (let y = 0; y < P.cw; y++) for (let x = 0; x < P.cw; x++) { const o = ((y0 + y) * W + x0 + x) * 4; if (d[o + 3] > 12 && d[o] > 120 && d[o + 2] > 100 && d[o + 1] < d[o] - 35) n++; } return n; };
+        const heads = Object.values(P.index.head).map(pinkIn), hair = [...Object.values(P.index.hair), ...Object.values(P.index.hairBack), ...Object.values(P.index.beard)].map(pinkIn);
+        /* the rim: pixels of the hair behind that show above the top of the hair in front, per column */
+        let rim = 0;
+        Object.keys(P.index.hair).forEach(k => {
+          const [fx, fy] = at(P.index.hair[k]), [bx, by] = at(P.index.hairBack[k]);
+          for (let x = 0; x < P.cw; x++) {
+            let top = -1; for (let y = 0; y < P.cw; y++) { const o = ((fy + y) * W + fx + x) * 4; if (t[o + 3] > 60 || d[o + 3] > 60) { top = y; break; } }
+            if (top < 0) continue;
+            for (let y = 0; y < top; y++) { const o = ((by + y) * W + bx + x) * 4; if (t[o + 3] > 10 || d[o + 3] > 10) rim++; }
+          }
+        });
+        const lips = [...C.lips.values()].map(m => { const g = m.getContext('2d').getImageData(0, 0, m.width, m.height).data; let n = 0; for (let i = 3; i < g.length; i += 4) if (g[i] > 0) n++; return n; });
+        const pc = CrewLayers.portrait(4242, 'terra', '#4db8ff', false, 128);
+        const pd = pc.getContext('2d').getImageData(0, 0, 128, 128).data;
+        let pinkP = 0; for (let o = 0; o < pd.length; o += 4) if (pd[o] > 200 && pd[o + 2] > 140 && pd[o + 1] < 130) pinkP++;
+        const top = pc.getContext('2d').getImageData(0, 0, 128, 2).data; let rimTop = 0; for (let o = 0; o < top.length; o += 4) if (top[o + 2] > 150 && top[o] < 140) rimTop++;
+        return { heads, hair, rim, lips, pinkP, rimTop };
+      });
+      ok(faces && faces.heads.every(n => n === 0) && faces.lips.every(n => n > 40),
+         `the lips are lifted out of every head into a mask of their own (${faces?.lips})`);
+      ok(faces && faces.hair.every(n => n === 0), 'no pink fringe left on the hair, the hair behind or the beards');
+      ok(faces && faces.rim === 0, `nothing of the hair behind shows over the top of the hair in front (${faces?.rim} px)`);
+      ok(faces && faces.pinkP === 0, `a finished portrait has no pink in it (${faces?.pinkP} px)`);
+      ok(faces && faces.rimTop === 0, `the helmet's rim stays inside the picture at the top (${faces?.rimTop} px on the edge)`);
 
     /* …AND THE PORT IS A PROMENADE (update143): drawn in a real browser,
        the hull's own picture in the window, a real face at each counter. */

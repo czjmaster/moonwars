@@ -89,20 +89,54 @@ const CrewLayers = (() => {
     const key = `${atlas}|${i}|${colour}`;
     let c = _tinted.get(key);
     if (c) return c;
-    const src = img(atlas); if (!src) return null;
+    const src = srcOf(atlas); if (!src) return null;
     const [sx, sy] = cellXY(meta, i);
     c = canvas(meta.cw, meta.ch); const g = c.getContext('2d');
     g.drawImage(src, sx, sy, meta.cw, meta.ch, 0, 0, meta.cw, meta.ch);
-    g.globalCompositeOperation = 'multiply'; g.fillStyle = colour; g.fillRect(0, 0, meta.cw, meta.ch);
-    g.globalCompositeOperation = 'destination-in';
-    g.drawImage(src, sx, sy, meta.cw, meta.ch, 0, 0, meta.cw, meta.ch);
-    g.globalCompositeOperation = 'source-over';
+    /* PIXEL BY PIXEL (update265, jj 26.11: „widać nieraz zarysy włosów lub brody — na brzegach jaśniejsze obrysy"): a
+       `multiply` fill over a half-transparent edge pixel paints in the plain colour, not the colour times the pixel —
+       so every tinted part (hair, beard, skin, suit) had a thin light rim. Each pixel is multiplied by itself now. */
+    if (!mulInPlace(g, meta.cw, meta.ch, colour)) {
+      g.globalCompositeOperation = 'multiply'; g.fillStyle = colour; g.fillRect(0, 0, meta.cw, meta.ch);
+      g.globalCompositeOperation = 'destination-in';
+      g.drawImage(src, sx, sy, meta.cw, meta.ch, 0, 0, meta.cw, meta.ch);
+      g.globalCompositeOperation = 'source-over';
+    }
     if (_tinted.size > 4000) _tinted.clear();
     _tinted.set(key, c);
     return c;
   }
+  /** A colour as [r, g, b] (any CSS colour), cached. */
+  const _rgb = new Map();
+  function rgbOf(colour) {
+    if (_rgb.has(colour)) return _rgb.get(colour);
+    let out = null;
+    const m = /^#([0-9a-f]{6})$/i.exec(String(colour));
+    if (m) { const n = parseInt(m[1], 16); out = [n >> 16 & 255, n >> 8 & 255, n & 255]; }
+    else {
+      try { const c = canvas(1, 1), g = c.getContext('2d'); g.fillStyle = colour; g.fillRect(0, 0, 1, 1); const d = g.getImageData(0, 0, 1, 1)?.data; if (d && d.length >= 4) out = [d[0], d[1], d[2]]; } catch (e) { /* no pixels */ }
+    }
+    _rgb.set(colour, out);
+    return out;
+  }
+  /** Multiply every pixel of the canvas by `colour`, alpha kept. False where pixels cannot be read (a test's fake canvas). */
+  function mulInPlace(g, w, h, colour) {
+    const rgb = rgbOf(colour); if (!rgb) return false;
+    let id = null;
+    try { id = g.getImageData(0, 0, w, h); } catch (e) { return false; }
+    const d = id?.data; if (!d || d.length < w * h * 4) return false;
+    const [r, gg, b] = rgb;
+    for (let o = 0; o < d.length; o += 4) { d[o] = d[o] * r / 255; d[o + 1] = d[o + 1] * gg / 255; d[o + 2] = d[o + 2] * b / 255; }
+    g.putImageData(id, 0, 0);
+    return true;
+  }
+  /** The sheet to draw from: the portrait sheets cleaned (update265), every other one as loaded. */
+  function srcOf(atlas) {
+    if (atlas === 'crew2p_tint' || atlas === 'crew2p_fixed') { const C = cleanSheets(); if (C) return atlas === 'crew2p_tint' ? C.tint : C.fixed; }
+    return img(atlas);
+  }
   function blit(g, atlas, meta, i, x, y) {
-    const src = img(atlas); if (!src) return;
+    const src = srcOf(atlas); if (!src) return;
     const [sx, sy] = cellXY(meta, i);
     g.drawImage(src, sx, sy, meta.cw, meta.ch, x, y, meta.cw, meta.ch);
   }
@@ -313,6 +347,103 @@ const CrewLayers = (() => {
     const beard = t.beard < 0 ? -1 : (heavy && t.beard < 4 ? 8 + t.beard : t.beard);
     return { t, heavy, head: t.head, eyes, hair, beard, acc };
   }
+  /* ══ THE PORTRAIT SHEETS CLEANED ON LOAD (update265, jj 26.11) ══════════════════════════════════════════════════
+   *  „włosy na głowach nachodzą na siebie — na górze widać jedną powłokę włosów, która nachodzi na inną warstwę":
+   *    the hair BEHIND the head was cut a little bigger than the hair in front, so a thin rim of it showed round the top
+   *    of nearly every hairdo — a second outline over the first. That rim is taken off (whatever of it is thinner than
+   *    a few px); long hair and an afro behind keep their bulk.
+   *  „na brzegach jaśniejsze obrysy": a faint pink fringe left by the cutting on the inner edge of the hair, the hair
+   *    behind and the beards — deleted.
+   *  „usta na postaciach są różowe, słabo to wygląda": the lips were painted pink into the head; they are lifted out
+   *    and painted in a shade of his own skin instead (see `lipsOf`).
+   *  The files are not touched — they are what tools/crew_portrait/export.py writes. ══════════════════════════════ */
+  let _clean = null;
+  function cleanSheets() {
+    if (_clean !== null) return _clean || null;
+    if (!P || typeof document === 'undefined') return null;
+    const T = img('crew2p_tint'), F = img('crew2p_fixed');
+    if (!T || !F || !(T.width > 1)) return null;
+    try {
+      const W = T.width, H = T.height, cw = P.cw, cols = P.cols, ix = P.index;
+      const mk = (src) => { const c = canvas(W, H); c.getContext('2d').drawImage(src, 0, 0); return c; };
+      const tc = mk(T), fc = mk(F), tg = tc.getContext('2d'), fg = fc.getContext('2d');
+      const td = tg.getImageData(0, 0, W, H), fd = fg.getImageData(0, 0, W, H);
+      if (!td?.data || td.data.length < W * H * 4 || !fd?.data || fd.data.length < W * H * 4) { _clean = false; return null; }
+      const A = td.data, B = fd.data;
+      const at = (i) => [(i % cols) * cw, Math.floor(i / cols) * cw];
+      const pink = (d, o) => d[o + 3] > 12 && d[o] > 120 && d[o + 2] > 100 && d[o + 1] < d[o] - 35;
+      /* the lips, out of every head into a grey mask of their own */
+      const lips = new Map();
+      Object.values(ix.head).forEach(i => {
+        const [x0, y0] = at(i), m = canvas(cw, cw), mg = m.getContext('2d'), md = mg.createImageData(cw, cw);
+        for (let y = 0; y < cw; y++) for (let x = 0; x < cw; x++) {
+          const o = ((y0 + y) * W + x0 + x) * 4, q = (y * cw + x) * 4;
+          if (!pink(B, o)) continue;
+          const lum = Math.min(255, Math.round((0.35 * B[o] + 0.45 * B[o + 1] + 0.2 * B[o + 2]) * 1.5));
+          md.data[q] = md.data[q + 1] = md.data[q + 2] = lum; md.data[q + 3] = B[o + 3];
+          B[o + 3] = 0;
+        }
+        mg.putImageData(md, 0, 0);
+        lips.set(i, m);
+      });
+      /* the pink fringe off the hair, the hair behind and the beards */
+      [...Object.values(ix.hair), ...Object.values(ix.hairBack), ...Object.values(ix.beard)].forEach(i => {
+        const [x0, y0] = at(i);
+        for (let y = 0; y < cw; y++) for (let x = 0; x < cw; x++) { const o = ((y0 + y) * W + x0 + x) * 4; if (pink(B, o)) B[o + 3] = 0; }
+      });
+      /* the rim of the hair behind: what shows of it past the hair in front, opened by RIM px — a thin band goes */
+      const RIM = 3;
+      Object.keys(ix.hair).forEach(k => {
+        const fi = ix.hair[k], bi = ix.hairBack[k];
+        if (fi == null || bi == null) return;
+        const [fx, fy] = at(fi), [bx, by] = at(bi);
+        const front = new Uint8Array(cw * cw), vis = new Uint8Array(cw * cw);
+        for (let y = 0; y < cw; y++) for (let x = 0; x < cw; x++) {
+          const of = ((fy + y) * W + fx + x) * 4, ob = ((by + y) * W + bx + x) * 4, q = y * cw + x;
+          front[q] = (A[of + 3] > 60 || B[of + 3] > 60) ? 1 : 0;
+          vis[q] = (!front[q] && (A[ob + 3] > 10 || B[ob + 3] > 10)) ? 1 : 0;
+        }
+        const m = openMask(vis, cw, RIM);
+        /* …and on top, nothing of it rises over the hair in front in that column — a tuft of it stood up over two styles */
+        const topOf = new Int16Array(cw).fill(-1);
+        for (let x = 0; x < cw; x++) for (let y = 0; y < cw; y++) if (front[y * cw + x]) { topOf[x] = y; break; }
+        for (let y = 0; y < cw; y++) for (let x = 0; x < cw; x++) {
+          const q = y * cw + x;
+          const over = y < cw / 2 && topOf[x] >= 0 && y < topOf[x];
+          if ((vis[q] && !m[q]) || over) { const ob = ((by + y) * W + bx + x) * 4; A[ob + 3] = 0; B[ob + 3] = 0; }
+        }
+      });
+      tg.putImageData(td, 0, 0); fg.putImageData(fd, 0, 0);
+      _clean = { tint: tc, fixed: fc, lips };
+      return _clean;
+    } catch (e) { _clean = false; return null; }
+  }
+  /** A mask (0/1, w × w) with every band thinner than about 2·rim px taken off: eroded `rim` times, grown back rim + 1. */
+  function openMask(vis, w, rim) {
+    const step = (src, grow) => {
+      const out = new Uint8Array(w * w);
+      for (let y = 0; y < w; y++) for (let x = 0; x < w; x++) {
+        let v = grow ? 0 : 1;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx, yy = y + dy, s0 = (xx < 0 || yy < 0 || xx >= w || yy >= w) ? 0 : src[yy * w + xx];
+          if (grow ? s0 : !s0) v = grow ? 1 : 0;
+        }
+        out[y * w + x] = v;
+      }
+      return out;
+    };
+    let m = vis;
+    for (let r = 0; r < rim; r++) m = step(m, false);
+    for (let r = 0; r < rim + 1; r++) m = step(m, true);
+    return m;
+  }
+  /** His lips: a shade of his own skin, a little warmer and darker — not the pink painted into the heads. */
+  function lipsOf(skin) {
+    const s = rgbOf(skin) ?? [210, 154, 114];
+    const c = (v) => Math.max(0, Math.min(255, Math.round(v)));
+    return `rgb(${c(s[0] * 0.80 + 14)},${c(s[1] * 0.58)},${c(s[2] * 0.58)})`;
+  }
+
   const _pp = new Map();
   function portraitLayers(seed, race, colour, bare, asleep) {
     const key = `${seed}|${race ?? ''}|${colour}|${bare ? 1 : 0}|${asleep ? 1 : 0}`;
@@ -330,11 +461,15 @@ const CrewLayers = (() => {
     part(ix.collar[build], colour);
     if (pl.hair >= 0) part(ix.hairBack[pl.hair], t.hairCol);
     part(ix.head[pl.head], t.skin);
+    const lm = cleanSheets()?.lips?.get(ix.head[pl.head]);           // his lips, in his skin's shade (update265)
+    if (lm) { const lc = canvas(P.cw, P.ch), lg = lc.getContext('2d'); lg.drawImage(lm, 0, 0); if (mulInPlace(lg, P.cw, P.ch, lipsOf(t.skin))) g.drawImage(lc, 0, 0); }
     part(ix.eyes[pl.eyes], t.hairCol);
     if (pl.beard >= 0) part(ix.beard[pl.beard], t.hairCol);
     if (pl.hair >= 0) part(ix.hair[pl.hair], t.hairCol);
     if (pl.acc >= 0) part(ix.acc[pl.acc], null);
-    if (!bare) drawShield(g, P.cw / 2, P.ch * 0.43, P.cw * 0.47, 0);      // the shield's thin rim round his head
+    /* the shield's thin rim round his head — inside the frame now (update265, jj 26.11: „na górze dalej jest trochę hełm
+       przycięty"): centred at 0.43 with a radius of 0.47 its top ran 5 px off the picture */
+    if (!bare) drawShield(g, P.cw / 2, P.ch * 0.45, P.cw * 0.43, 0);
     if (_pp.size > 300) _pp.clear();
     _pp.set(key, c);
     return c;
@@ -365,5 +500,6 @@ const CrewLayers = (() => {
     return c;
   }
 
-  return { FRAME, SEQ, IMAGES, PIMAGES, ready, portraitReady, portraitPlan, traitsOf, plan, frames, anim, drawShield, portrait, _reset: () => { _ready = null; _pReady = null; } };
+  return { FRAME, SEQ, IMAGES, PIMAGES, ready, portraitReady, portraitPlan, traitsOf, plan, frames, anim, drawShield, portrait, cleanSheets, lipsOf, rgbOf, openMask, mulInPlace,
+           _reset: () => { _ready = null; _pReady = null; _clean = null; } };
 })();
