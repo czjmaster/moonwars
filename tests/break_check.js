@@ -18742,8 +18742,8 @@ const BREAKS = [
   {
     name: "#250 a dead console worked",
     file: F('crew.js'),
-    from: "this._setAnim(atConsole && !CrewMember.consoleDead(room.system) ? 'operate' : 'idle');",
-    to:   "this._setAnim(atConsole ? 'operate' : 'idle');",
+    from: "this._setAnim(atConsole && !CrewMember.consoleDead(room.system) && room.system.type !== 'medbay' ? 'operate' : 'idle');",
+    to:   "this._setAnim(atConsole && room.system.type !== 'medbay' ? 'operate' : 'idle');",
   },
   {
     name: "#250 fists at full pace in zero-G",
@@ -19441,6 +19441,72 @@ const BREAKS = [
     file: F('fighters.js'),
     from: "if (c && !c.isRobot) board(ship, f, c); }   // a robot does not fly her",
     to:   "if (c) board(ship, f, c); }   // a robot does not fly her",
+  },
+  {
+    name: "#264 everybody in the ward is treated",
+    file: F('ship.js'),
+    from: "        if (!b || b.dead || b !== bed) return;",
+    to:   "        if (!b || b.dead) return;",
+  },
+  {
+    name: "#264 nobody steps up onto the bed",
+    file: F('ship.js'),
+    from: "      next.moveToOnShip(this, bx, by);\n",
+    to:   "\n",
+  },
+  {
+    name: "#264 a casualty waits behind the standing",
+    file: F('ship.js'),
+    from: "    if (down) return down;\n",
+    to:   "\n",
+  },
+  {
+    name: "#264 two on the bed: the whole one is taken",
+    file: F('ship.js'),
+    from: ".sort((a, b) => (hurt(b) - hurt(a)) || (a.hp / a.maxHp - b.hp / b.maxHp))[0];   // two on it: the hurt one",
+    to:   ".sort((a, b) => 0)[0];   // two on it: the hurt one",
+  },
+  {
+    name: "#264 the man on the bed works a console",
+    file: F('crew.js'),
+    from: "!CrewMember.consoleDead(room.system) && room.system.type !== 'medbay' ? 'operate' : 'idle');",
+    to:   "!CrewMember.consoleDead(room.system) ? 'operate' : 'idle');",
+  },
+  {
+    name: "#264 no scan over the bed",
+    file: F('crew.js'),
+    from: "    if (this._onBed && !this.dead) {\n      const t = (typeof performance",
+    to:   "    if (false) {\n      const t = (typeof performance",
+  },
+  {
+    name: "#264 the door says nothing of its way",
+    file: F('ship.js'),
+    from: "    Audio.sfx.doorMove?.(this.mode === 'open');",
+    to:   "    Audio.sfx.doorMove?.();",
+  },
+  {
+    name: "#264 a port again, no film",
+    file: F('game.js'),
+    from: "    STATE = 'station'; _beginFade();\n    _openPort(true);\n    _saveShip();\n    return true;",
+    to:   "    STATE = 'station'; _beginFade();\n    _openPort();\n    _saveShip();\n    return true;",
+  },
+  {
+    name: "#264 the frozen dead in a bubble",
+    file: F('game.js'),
+    from: "  function _drawFrost(ctx, k, t) {\n    ctx.save();\n",
+    to:   "  function _drawFrost(ctx, k, t) {\n    ctx.save();\n    ctx.ellipse(0, -2, 9, 14, 0, 0, Math.PI * 2);\n",
+  },
+  {
+    name: "#264 the hot core twinkles green",
+    file: F('ship.js'),
+    from: "(Particles.heatSparks ?? Particles.repairSparks)?.(",
+    to:   "Particles.repairSparks?.(",
+  },
+  {
+    name: "#264 the cat painter is not exported",
+    file: F('rewardview.js'),
+    from: "MAX_PICS, drawCatPortrait };",
+    to:   "MAX_PICS };",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

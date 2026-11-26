@@ -183,6 +183,17 @@ const Particles = (() => {
     }, { speedMin: 20, speedMax: 60 });
   }
 
+  /* A HOT CORE THROWS SPARKS (update264, jj 26.11: „iskry jak reaktor się przegrzewa, nie zielone bąbelki"): a white
+     snap and orange-red sparks that fly out and fall — the green twinkle was the repair's. `hot` 0..1 makes them more. */
+  function heatSparks(x, y, hot = 0.5) {
+    emit({ x, y, vx: 0, vy: 0, ay: 0, color: '#fff6d8', colorEnd: '#ffb040',
+           size: Utils.randFloat(2.5, 4.5), sizeEnd: 0, life: 0.07, alpha: 0.95, alphaEnd: 0.1 });
+    burst(3 + Math.round(hot * 3), {
+      x, y, vy: -40, color: '#ffe08a', colorEnd: '#ff3a10',
+      size: 1.5, sizeEnd: 0.3, life: 0.55, ay: 240,
+    }, { speedMin: 40, speedMax: 120 });
+  }
+
   /* WELDING, NOT GREEN STARS (update250, jj 21.11: „naprawa ma animację zieloną, lepiej by wyglądało jakby było coś
      w rodzaju spawania"): a white-blue flash at the torch and orange sparks that fly off and FALL — what a man
      mending a module or patching a hole now makes. `dir` leans the sparks away from him (1 right, −1 left, 0 any). */
@@ -394,7 +405,7 @@ const Particles = (() => {
     emit, burst,
     explosion, shieldHit, fireParticles, fireParticlesZeroG, smokeTrail,
     FIRE_COLOURS_STARVED,
-    repairSparks, weld, scrapCollect, laserHit, crewDie,
+    repairSparks, weld, heatSparks, scrapCollect, laserHit, crewDie,
     muzzleFlash, damageSmoke,
     floatText,
     update, draw, clear,

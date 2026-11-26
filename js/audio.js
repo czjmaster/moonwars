@@ -440,10 +440,18 @@ const Audio = (() => {
        is what `?.` buys you — no crash, no sound, no clue. */
 
     /** A bulkhead door running on its track. */
-    doorMove() {
-      _tone({ freq: 260, freqEnd: 170, type: 'square', duration: 0.11,
-              gain: 0.10, attack: 0.004, release: 0.07 });
-      _noise({ duration: 0.09, gain: 0.05, hpFreq: 1800 });
+    /* A PLEASANT CHIME AND A SOFT SLIDE (update264, jj 26.11: „lepszy dźwięk jak otwierasz i zamykasz drzwi — przyjemniejszy
+       pik i delikatny dźwięk do zasuwanych i odsuwanych drzwi"). The old one was a square-wave buzz and a hiss. Now two soft
+       sine notes — rising as she opens, falling as she shuts — and a low, padded whoosh of the panel on its track. */
+    doorMove(opening = true) {
+      if (!ctx) return;
+      const t = ctx.currentTime;
+      const [a, b] = opening ? [784, 1047] : [1047, 784];          // G5 → C6, or back
+      _tone({ freq: a, type: 'sine', duration: 0.09, gain: 0.045, attack: 0.006, release: 0.06 });
+      _tone({ freq: b, type: 'sine', duration: 0.14, gain: 0.04, attack: 0.008, release: 0.1, when: t + 0.07 });
+      _tone({ freq: b * 2, type: 'sine', duration: 0.1, gain: 0.008, attack: 0.008, release: 0.08, when: t + 0.07 });   // a little air on top
+      _noise({ duration: 0.38, gain: 0.03, filter: 'lowpass', freq: opening ? 500 : 900, freqEnd: opening ? 1100 : 380, Q: 0.9,
+               attack: 0.08, release: 0.2, when: t + 0.03 });
     },
 
     /** A lift cabin settling at its floor (update172) — a soft clunk,

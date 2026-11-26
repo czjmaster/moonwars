@@ -2078,7 +2078,8 @@ class CrewMember {
           /* A DEAD CONSOLE IS NOT WORKED (update250, jj 21.11: „jak nie działa konsola w module lub jest wyłączona
              całkowicie, załogant nie udaje, że pracuje przy niej, a stoi przodem"): shot out, or with no power in
              it, he stands at it facing us. */
-          this._setAnim(atConsole && !CrewMember.consoleDead(room.system) ? 'operate' : 'idle');
+          /* …AND THE WARD'S CENTRE IS A BED, NOT A CONSOLE (update264): he stands on it facing us */
+          this._setAnim(atConsole && !CrewMember.consoleDead(room.system) && room.system.type !== 'medbay' ? 'operate' : 'idle');
         }
         break;
       }
@@ -2487,6 +2488,25 @@ class CrewMember {
     }
 
     ctx.restore();
+    /* THE SCANNER OVER THE BED (update264): a pale blue field round the man being treated and a bright line sweeping
+       up and down him — the clock moves it, no dice. A casualty on the floor gets it lying down. */
+    if (this._onBed && !this.dead) {
+      const t = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+      const lying = !!this.down, LIFT = this.anim?.native ? CrewMember.LIFT : 0;
+      const H = lying ? 10 : 28 + LIFT, W = lying ? 30 : 20;
+      const top = lying ? this.y - 8 : this.y - H, left = this.x - W / 2;
+      const ph = (t * 0.7) % 2, u = ph < 1 ? ph : 2 - ph;
+      ctx.save();
+      ctx.fillStyle = 'rgba(70,170,255,0.10)';
+      ctx.fillRect(left, top, W, H);
+      ctx.strokeStyle = 'rgba(120,200,255,0.35)'; ctx.lineWidth = 1;
+      ctx.strokeRect(left + 0.5, top + 0.5, W - 1, H - 1);
+      const g = ctx.createLinearGradient(0, top + u * H - 4, 0, top + u * H + 4);
+      g.addColorStop(0, 'rgba(110,200,255,0)'); g.addColorStop(0.5, 'rgba(160,225,255,0.85)'); g.addColorStop(1, 'rgba(110,200,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(left - 2, top + u * H - 4, W + 4, 8);
+      ctx.restore();
+    }
     /* SMASHING THE CONSOLE (update262): a flash at his fist on every other beat of the swing, orange sparks off it — the
        clock and his id pick them, so two men are not in step and nothing rolls a die. */
     if (this._smashing && !this.dead) {

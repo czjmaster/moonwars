@@ -12247,7 +12247,7 @@ section('174. The cat is a patient, on the ship and at the station');
     ship.crew = ship.crew.filter(c => c !== brawler);
     patient.hp = patient.maxHp * 0.5;
     patient.state = 'ok';
-    patient.roomId = med.id; patient.x = med.cx; patient.y = med.cy;
+    patient.roomId = med.id; [patient.x, patient.y] = ship.stationSlot(med, 0);   // on the bed: one at a time (update264)
     const p1 = patient.hp;
     for (let i = 0; i < 30; i++) { ship.crew.forEach(c => c._waypoints = []); ship.update(0.05); }
     ok(patient.hp > p1, `and resumes when the room is clear (${p1} → ${patient.hp.toFixed(1)})`);
@@ -47859,6 +47859,82 @@ section('449. jj 26.11 (263): the fighter on the hangar\'s icon (LAUNCH · RECAL
     const last = after[after.length - 1];
     ok(r.ok && after.length === before + 1 && last?.isRobot && last.robotKind === 'operator', `a carrier bought: an operator robot in the barracks (${r.message})`);
     ok(/operator robot/.test(sb.SHIP_CATALOG?.enemy_geb?.blurb ?? read('js/base.js')), 'her blurb says so');
+  }
+})();
+
+// ============================================================
+section('450. jj 26.11 (264): the medbay\'s bed — one at a time, facing us, under a blue scan; a pleasant door chime and a soft slide; snow and glints on the frozen dead, no bubble; a hot core throws sparks; she flies in again at a port she left; a cat on the event card');
+// ============================================================
+(function testUpdate264() {
+  const quiet = (fn) => { const log = console.log, warn = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = log; console.warn = warn; } };
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const { makeCtx } = require('./harness.js');
+  const sb = loadEngine();
+  const { Ship, CrewMember, Audio, Particles, RewardView } = sb;
+  /* 1. the bed */
+  {
+    const ship = new Ship('frigate', true, 80, 120); ship._allocateDefaultPower(); ship.crew.length = 0;
+    const med = ship.rooms.find(r => r.type === 'medbay');
+    med.system.power = med.system.desiredPower = med.system.level;
+    const mk = (name, slot, hp) => { const c = new CrewMember({ isPlayer: true, race: 'terra', name }); ship.addCrew(c); c.roomId = c.homeRoomId = med.id;
+      [c.x, c.y] = ship.stationSlot(med, slot); c.hp = hp; c.inRoom = true; return c; };
+    const a = mk('A', 0, 60), b = mk('B', 1, 30), c = mk('C', 2, 50);
+    const [a0, b0, c0] = [a.hp, b.hp, c.hp];
+    quiet(() => { for (let i = 0; i < 10; i++) { ship.crew.forEach(k => { k._waypoints = []; }); ship.update(0.05); } });
+    ok(a.hp > a0 && b.hp === b0 && c.hp === c0, `three in the ward: only the man on the bed (the centre) is treated (A ${a0}→${a.hp.toFixed(1)}, B ${b.hp}, C ${c.hp})`);
+    ok(a._onBed && !b._onBed && !c._onBed, 'he is the one under the scanner');
+    a.hp = a.maxHp;
+    quiet(() => ship.update(0.05));
+    const bWalks = (b._waypoints?.length ?? 0) > 0, aSteps = (a._waypoints?.length ?? 0) > 0;
+    ok(bWalks && aSteps, 'he is whole: the worst of those waiting (B) steps up onto the bed, and A steps aside into his place');
+    quiet(() => { for (let i = 0; i < 120; i++) ship.update(0.05); });
+    ok(ship.slotIndexAt(b.x, b.y, med) === 0 && b.hp > b0, `B on the bed now, and treated (${b0} → ${b.hp.toFixed(1)})`);
+    /* a casualty on the floor comes before anybody waiting on his feet */
+    const d = mk('D', 2, 5); d.state = 'down';
+    const dn = d.hp;
+    quiet(() => { for (let i = 0; i < 20; i++) { ship.crew.forEach(k => { k._waypoints = []; }); ship.update(0.05); } });
+    const onBedStanding = ship.crew.find(k => !k.down && ship.slotIndexAt(k.x, k.y, med) === 0);
+    ok(onBedStanding && onBedStanding.hp < onBedStanding.maxHp ? true : d.hp > dn, `a man down in the ward is taken when the bed holds nobody hurt (${dn} → ${d.hp.toFixed(1)})`);
+    ok(/room\.system\.type !== 'medbay' \? 'operate' : 'idle'/.test(read('js/crew.js')), 'the man on the bed does not work a console — he stands facing us');
+    const ctx = makeCtx(); let grads = 0; ctx.createLinearGradient = () => { grads++; return { addColorStop: () => {} }; };
+    a._onBed = true; let err = null; try { a.draw(ctx); } catch (e) { err = e; }
+    if (err) console.log('  (draw threw: ' + err.message + ')');
+    ok(grads > 0 && /THE SCANNER OVER THE BED/.test(read('js/crew.js')), 'the blue scan line is drawn over him');
+  }
+  /* 2. the doors */
+  {
+    const A = read('js/audio.js');
+    ok(/doorMove\(opening = true\)/.test(A) && !/freq: 260, freqEnd: 170, type: 'square'/.test(A), 'the door: no square-wave buzz any more');
+    ok(/const \[a, b\] = opening \? \[784, 1047\] : \[1047, 784\];/.test(A) && /filter: 'lowpass'/.test(A.slice(A.indexOf('doorMove(opening'), A.indexOf('doorMove(opening') + 1200)),
+       'two soft sine notes — up as she opens, down as she shuts — and a padded slide');
+    ok(/Audio\.sfx\.doorMove\?\.\(this\.mode === 'open'\);/.test(read('js/ship.js')) && /Audio\.sfx\.doorMove\?\.\(open\);/.test(read('js/game.js')), 'a door, and OPEN/CLOSE ALL, say which way');
+    let called = null; const real = Audio.sfx.doorMove; Audio.sfx.doorMove = (o) => { called = o; };
+    try { const sh = new Ship('frigate', true, 0, 0); const d = sh.doors[0]; d.mode = 'closed'; d.toggle(); ok(called === true, 'opening a door plays the opening chime'); }
+    finally { Audio.sfx.doorMove = real; }
+  }
+  /* 3. frost */
+  {
+    const G = read('js/game.js'), i = G.indexOf('function _drawFrost'), body = G.slice(i, G.indexOf('function _drawSalvage'));
+    ok(!/ctx\.ellipse\(0, -2, 9, 14/.test(body) && /flakes drifting off him/.test(body) && /glints/.test(body), 'the frozen dead: no pale bubble round him — rime on him, flakes and glints');
+  }
+  /* 4. the hot core */
+  {
+    ok(typeof Particles.heatSparks === 'function', 'a hot core has sparks of its own');
+    ok(/\(Particles\.heatSparks \?\? Particles\.repairSparks\)\?\./.test(read('js/ship.js')), '…instead of the repair\'s green twinkle');
+  }
+  /* 5. the port again */
+  {
+    const G = read('js/game.js'), i = G.indexOf('function _redock'), body = G.slice(i, i + 1600);
+    ok(/_openPort\(true\);/.test(body) && /_openPrison\(node, true\)/.test(body), 'back to a port she left: the arrival film again');
+  }
+  /* 6. the cat on the card */
+  {
+    ok(typeof RewardView.drawCatPortrait === 'function', 'the event card has a cat painter');
+    const ctx = makeCtx(); let ells = 0; ctx.ellipse = () => { ells++; };
+    RewardView.drawCatPortrait(ctx, 100, 100, 1, '#d9893a', 0.5);
+    ok(ells >= 8, `a sitting cat: body, haunch, head, cheeks, muzzle, eyes, paws (${ells} shapes)`);
+    ok(!/Animation\.catAnim\('idle'/.test(read('js/rewardview.js')), 'the deck\'s tiny sprite is not blown up any more');
   }
 })();
 

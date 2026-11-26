@@ -33,7 +33,7 @@ const Game = (() => {
 const MENU_ITEMS = ['ENTER BASE','OPTIONS','NEW GAME'];
 /* THE BUILD ON THE TITLE SCREEN (update254, jj 23.11): 0.<update> until the release (then 1.0.0). Raised with
    every package. */
-const GAME_VERSION = '0.263';
+const GAME_VERSION = '0.264';
 /* THE TITLE SCREEN (update123, jj: "co do menu zrób to, co napisałeś"):
    your own hull drifting past the Moon with its roof on, a line under
    ENTER BASE saying what is waiting in there, and NEW GAME — behind a
@@ -2571,7 +2571,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        by hand instead of going through Door.toggle(), so the one place
        doorMove() is played was bypassed and the whole ship's doors
        cycled without a sound. */
-    if (moved) Audio.sfx.doorMove?.();
+    if (moved) Audio.sfx.doorMove?.(open);
     // Nothing moved, nothing paid (update98).
     if (!moved) {
       UI.notify(open ? 'Every door is already open.' : 'Every door is already closed.', 'info');
@@ -3506,17 +3506,42 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
   /* FROST ON THE DEAD OUT THERE (update253, jj 22.11: „dodaj troszkę mrozu — zamrożone ciała w kosmosie"): a pale
      rime over the body and a few glints of ice that catch the light as he turns. In the body's own frame (rotated). */
+  /* …SNOW AND GLINTS, NOT A BUBBLE (update264, jj 26.11: „powłoka zamarzniętego zmarłego w kosmosie — taka bańka; zrób
+     śnieżek mały i połyski dodatkowe, co lód odbija"). The pale oval read as a soap bubble round him. Now: rime packed
+     on him where frost settles (head, shoulders, along the body, the boots), a few small flakes drifting off him, and
+     glints — star-shaped when the ice catches the light. Seeded by the body, timed by the clock: no dice. */
   function _drawFrost(ctx, k, t) {
     ctx.save();
-    ctx.fillStyle = 'rgba(200,230,255,0.22)';
-    ctx.beginPath(); ctx.ellipse(0, -2, 9, 14, 0, 0, Math.PI * 2); ctx.fill();
     let h = (Math.floor((k.phase ?? 0) * 1000) >>> 0) || 7;
     const r = () => { h = (Math.imul(h, 1103515245) + 12345) >>> 0; return (h >>> 8) / 16777216; };
-    for (let i = 0; i < 7; i++) {
-      const x = (r() - 0.5) * 16, y = (r() - 0.5) * 26 - 2, tw = 0.35 + 0.65 * Math.max(0, Math.sin(t * 2.2 + i * 1.7 + (k.phase ?? 0)));
-      ctx.fillStyle = `rgba(235,248,255,${0.5 * tw + 0.2})`;
-      ctx.fillRect(x - 0.5, y - 0.5, 1.2, 1.2);
-      if (tw > 0.85) { ctx.fillRect(x - 2, y - 0.25, 4, 0.5); ctx.fillRect(x - 0.25, y - 2, 0.5, 4); }
+    /* rime on him: little clumps along his outline */
+    const spots = [[0, -22, 4], [-5, -15, 3], [5, -15, 3], [-6, -6, 3], [6, -4, 3], [-4, 4, 3], [4, 6, 3], [-3, 9, 2], [3, 9, 2]];
+    spots.forEach(([sx, sy, n]) => {
+      for (let i = 0; i < n; i++) {
+        const x = sx + (r() - 0.5) * 4, y = sy + (r() - 0.5) * 3, sz = 0.8 + r() * 1.1;
+        ctx.fillStyle = `rgba(232,246,255,${0.55 + r() * 0.35})`;
+        ctx.fillRect(x - sz / 2, y - sz / 2, sz, sz);
+      }
+    });
+    /* flakes drifting off him, slow, each on its own little loop */
+    for (let i = 0; i < 6; i++) {
+      const a0 = r() * Math.PI * 2, rad = 10 + r() * 9, sp = 0.15 + r() * 0.2;
+      const u = (t * sp + r()) % 1;
+      const x = Math.cos(a0 + u * 0.8) * (rad + u * 8), y = Math.sin(a0 + u * 0.8) * (rad + u * 8) - 4;
+      ctx.fillStyle = `rgba(240,250,255,${0.7 * (1 - u)})`;
+      ctx.fillRect(x - 0.6, y - 0.6, 1.3, 1.3);
+    }
+    /* glints: the ice catching the light as he turns */
+    for (let i = 0; i < 5; i++) {
+      const x = (r() - 0.5) * 14, y = (r() - 0.5) * 26 - 6;
+      const tw = Math.max(0, Math.sin(t * 1.9 + i * 2.3 + (k.phase ?? 0) * 3));
+      if (tw < 0.55) continue;
+      const L = 1.5 + 3.5 * (tw - 0.55) / 0.45;
+      ctx.fillStyle = `rgba(255,255,255,${0.55 + 0.45 * tw})`;
+      ctx.fillRect(x - L, y - 0.3, L * 2, 0.6);
+      ctx.fillRect(x - 0.3, y - L, 0.6, L * 2);
+      ctx.fillStyle = `rgba(190,230,255,${0.35 * tw})`;
+      ctx.beginPath(); ctx.arc(x, y, 1.4 + tw, 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();
   }
@@ -10264,7 +10289,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   function _redock() {
     if (!_atPort()) return false;
     const node = _sectorMap.current();
-    if (node.type === 'prison') { _jumpPrompt = false; Audio.sfx.uiClick?.(); _openPrison(node); return true; }
+    /* SHE FLIES IN AGAIN (update264, jj 26.11: „jak dokujemy jeszcze raz do tej samej stacji, znów powinna być animacja
+       wlotu"): she left the berth with the departure film, so she comes back to it with the arrival one. Still no
+       customs and no rest the second time. */
+    if (node.type === 'prison') { _jumpPrompt = false; Audio.sfx.uiClick?.(); _openPrison(node, true); return true; }
     if (!_station || _station.blackMarket || _station.nodeId !== node.id) {
       _station = new Station(Save.getRun()?.sector ?? 1, Date.now());
       _station.nodeId = node.id;
@@ -10273,7 +10301,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     _jumpPrompt = false;
     Audio.sfx.uiClick?.();
     STATE = 'station'; _beginFade();
-    _openPort();
+    _openPort(true);
     _saveShip();
     return true;
   }

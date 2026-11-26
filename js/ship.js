@@ -208,8 +208,7 @@ class Door {
   toggle() {
     this.mode = this.mode === 'open' ? 'closed' : 'open';
     this._tempT = 0;
-    Audio.sfx.uiClick();
-    Audio.sfx.doorMove?.();
+    Audio.sfx.doorMove?.(this.mode === 'open');          // the chime is the click (update264)
   }
 
   /** Where the panel should end up, 1 = open. */
@@ -4029,9 +4028,15 @@ class Ship {
       ? this.medbayPatients(medRoom.id) : [];
     this.crew.forEach(c => this._cureTick(c, dt, inWard.includes(c)));
 
+    /* ONE ON THE BED (update264, jj 26.11: „w medical module załogant nie pracuje przy konsoli, staje przodem i się leczy —
+       animacja leczenia, taki skan niebieski; leczyć się może tylko ten na środku, 1 załogant na raz"). The centre of the
+       ward is the bed: the man standing on it is treated, facing us, under the scanner; a casualty on the floor is taken
+       before anybody waiting on his feet; the rest wait their turn and step up when it is free. */
+    const bed = (medbay && medRoom && medbay.effectivePower() > 0) ? this._medbayBed(medRoom, inWard) : null;
+    this.crew.forEach(c => { c._onBed = c === bed; });
     if (medbay && medRoom && medbay.effectivePower() > 0) {
       inWard.forEach(b => {
-        if (!b || b.dead) return;
+        if (!b || b.dead || b !== bed) return;
         if (b.hp >= b.maxHp) return;
         b.hp = Math.min(b.maxHp, b.hp + Ship.MEDBAY_HPS * dt * medbay.effectivePower());
         if (b.down && b.hp >= b.maxHp * Ship.MEDKIT_SHARE) {
@@ -4574,6 +4579,27 @@ class Ship {
    * him any — the safe direction for a field that is only ever a
    * countdown.
    */
+  /** Who the ward treats now (update264): a hurt man standing on the bed (the centre spot); failing him, the worst
+   *  casualty on its floor; failing both, the worst hurt of those waiting steps up onto the bed — the man standing on it
+   *  whole steps aside into his place. Null when nobody needs it. */
+  _medbayBed(room, ward) {
+    const hurt = (c) => c && !c.dead && c.hp < c.maxHp;
+    const still = (c) => !c.down && !c.carrying && !c.carriedBy && !(c._waypoints?.length) && !c.busy && !c._busyAct;
+    const onBed = ward.filter(c => !c.down && this.slotIndexAt(c.x, c.y, room) === 0)
+                      .sort((a, b) => (hurt(b) - hurt(a)) || (a.hp / a.maxHp - b.hp / b.maxHp))[0];   // two on it: the hurt one
+    if (onBed && hurt(onBed)) return onBed;
+    const down = ward.filter(c => c.down && hurt(c)).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+    if (down) return down;
+    const next = ward.filter(c => !c.down && c !== onBed && hurt(c) && still(c) && !c.isPet)
+                     .sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+    if (next && (!onBed || still(onBed))) {
+      const [bx, by] = this.stationSlot(room, 0);
+      if (onBed) { const mine = this.slotIndexAt(next.x, next.y, room); const [sx, sy] = this.stationSlot(room, mine > 0 ? mine : 1); onBed.moveToOnShip(this, sx, sy); }
+      next.moveToOnShip(this, bx, by);
+    }
+    return null;
+  }
+
   _cureTick(b, dt, inWard) {
     if (!b) return;
     if (!inWard) { b._cureT = 0; return; }
@@ -5482,8 +5508,8 @@ class Ship {
       if (room && this.reactorHeat >= H.warnHeat) {
         const n = this.reactorHeat >= H.criticalHeat ? 3 : this.reactorHeat >= 80 ? 2 : 1;
         for (let k = 0; k < n; k++) {
-          Particles.repairSparks?.(room.cx + Utils.randFloat(-room.w * 0.35, room.w * 0.35),
-                                   room.cy + Utils.randFloat(-10, 10));
+          (Particles.heatSparks ?? Particles.repairSparks)?.(room.cx + Utils.randFloat(-room.w * 0.35, room.w * 0.35),   // sparks, not the repair's green (update264)
+                                   room.cy + Utils.randFloat(-10, 10), (this.reactorHeat - H.warnHeat) / (100 - H.warnHeat));
         }
       }
     }

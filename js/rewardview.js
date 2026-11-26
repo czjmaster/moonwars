@@ -246,17 +246,9 @@ const RewardView = (() => {
       ctx.fillStyle = '#c8d8f0'; ctx.font = '11px Share Tech Mono, monospace'; ctx.textAlign = 'center';
       ctx.fillText(String(pic.rec.name ?? '').slice(0, 16), cx, y + s + 16);
     } else if (kind === 'pet' && pic.rec) {
-      const anim = (typeof Animation !== 'undefined' && Animation.catAnim)
-        ? Animation.catAnim('idle', typeof crewColor === 'function' ? crewColor(pic.rec) : '#3a3a42') : null;
-      const fr = anim?.frames?.length ? anim.frames[Math.floor(t * 6) % anim.frames.length] : null;
-      if (fr && fr.width) {
-        ctx.imageSmoothingEnabled = false;
-        const k = 2;
-        ctx.drawImage(fr, cx - fr.width * k / 2, cy - fr.height * k / 2 + 6, fr.width * k, fr.height * k);
-      } else {
-        ctx.fillStyle = '#3a3a42'; ctx.beginPath(); ctx.ellipse?.(cx, cy + 14, 26, 20, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.arc(cx, cy - 16, 16, 0, Math.PI * 2); ctx.fill();
-      }
+      /* A CAT, NOT THREE BALLS (update264, jj 26.11: „kot wygląda jak robak z 3 kulek i ogon"): the deck's 64 px sprite —
+         mostly its helmet — blown up was a bubble, a blob and a tail. The card draws a cat of its own, sitting. */
+      drawCatPortrait(ctx, cx, cy + 8, 1, pic.rec.color ?? (typeof crewColor === 'function' ? crewColor(pic.rec) : '#3a3a42'), t);
       ctx.fillStyle = '#c8d8f0'; ctx.font = '11px Share Tech Mono, monospace'; ctx.textAlign = 'center';
       ctx.fillText(String(pic.rec.name ?? '').slice(0, 16), cx, A.y + A.h - 26);
     } else if (kind === 'upgrade' || kind === 'burnout') {
@@ -351,7 +343,80 @@ const RewardView = (() => {
     }
   }
 
-  return { pick, pickAll, draw, drawAll, offer, TINT, MAX_PICS };
+  return { pick, pickAll, draw, drawAll, offer, TINT, MAX_PICS, drawCatPortrait };
+
+  /** A sitting cat, three-quarter, ~110 px tall at k = 1 — her tail sways, she blinks. `col` her coat. */
+  function drawCatPortrait(ctx, cx, cy, k, col, t) {
+    const shade = (c, f) => { const n = parseInt(String(c).replace('#', '').padEnd(6, '0').slice(0, 6), 16);
+      const ch = (v) => Math.max(0, Math.min(255, Math.round(f < 0 ? v * (1 + f) : v + (255 - v) * f)));
+      return `rgb(${ch(n >> 16 & 255)},${ch(n >> 8 & 255)},${ch(n & 255)})`; };
+    const base = col, dark = shade(col, -0.45), light = shade(col, 0.35), chest = shade(col, 0.6);
+    ctx.save();
+    ctx.translate(cx, cy); ctx.scale(k, k);
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    /* the shadow under her */
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath(); ctx.ellipse(4, 46, 40, 7, 0, 0, Math.PI * 2); ctx.fill();
+    /* the tail, round the haunch, its tip swaying */
+    const sw = Math.sin(t * 1.8) * 7;
+    ctx.strokeStyle = dark; ctx.lineWidth = 9;
+    ctx.beginPath(); ctx.moveTo(22, 40); ctx.bezierCurveTo(46, 44, 50, 20, 44 + sw * 0.4, 4); ctx.quadraticCurveTo(42 + sw, -6, 36 + sw, -8); ctx.stroke();
+    ctx.strokeStyle = base; ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.moveTo(22, 40); ctx.bezierCurveTo(46, 44, 50, 20, 44 + sw * 0.4, 4); ctx.quadraticCurveTo(42 + sw, -6, 36 + sw, -8); ctx.stroke();
+    /* the body: haunch at the back, chest up front */
+    ctx.fillStyle = base;
+    ctx.beginPath();
+    ctx.moveTo(-14, -6); ctx.bezierCurveTo(-26, 8, -30, 30, -24, 44); ctx.lineTo(28, 44);
+    ctx.bezierCurveTo(36, 30, 30, 6, 12, -6); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = dark;                                              // the haunch's shading
+    ctx.beginPath(); ctx.ellipse(18, 30, 12, 15, -0.3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = base;
+    ctx.beginPath(); ctx.ellipse(16, 29, 10, 13, -0.3, 0, Math.PI * 2); ctx.fill();
+    /* the chest */
+    ctx.fillStyle = chest;
+    ctx.beginPath(); ctx.moveTo(-10, 2); ctx.quadraticCurveTo(-2, 30, -6, 38); ctx.quadraticCurveTo(0, 32, 4, 2); ctx.closePath(); ctx.fill();
+    /* the front legs and paws */
+    [[-12, 0], [-1, 1]].forEach(([lx, d]) => {
+      ctx.fillStyle = d ? light : base;
+      ctx.beginPath(); ctx.roundRect(lx - 4, 18, 8, 26, 4); ctx.fill();
+      ctx.fillStyle = chest;
+      ctx.beginPath(); ctx.ellipse(lx, 44, 6, 3.4, 0, 0, Math.PI * 2); ctx.fill();
+    });
+    /* the head */
+    const hy = -20, blink = ((t + 0.7) % 3.6) < 0.14, tilt = Math.sin(t * 0.6) * 0.05;
+    ctx.save(); ctx.translate(-4, hy); ctx.rotate(tilt);
+    [[-1, -11], [1, 9]].forEach(([sd, ex]) => {                       // the ears
+      ctx.fillStyle = base;
+      ctx.beginPath(); ctx.moveTo(ex - 8 * sd, -8); ctx.lineTo(ex + sd * 1, -26); ctx.lineTo(ex + 7 * sd, -10); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#e9a0a8';
+      ctx.beginPath(); ctx.moveTo(ex - 4 * sd, -10); ctx.lineTo(ex + sd * 1, -21); ctx.lineTo(ex + 4 * sd, -11); ctx.closePath(); ctx.fill();
+    });
+    ctx.fillStyle = base;
+    ctx.beginPath(); ctx.ellipse(0, -2, 19, 16, 0, 0, Math.PI * 2); ctx.fill();   // the skull
+    ctx.beginPath(); ctx.ellipse(0, 5, 21, 11, 0, 0, Math.PI * 2); ctx.fill();    // the cheeks
+    ctx.fillStyle = chest;
+    ctx.beginPath(); ctx.ellipse(0, 8, 9, 6, 0, 0, Math.PI * 2); ctx.fill();      // the muzzle
+    /* the eyes: green, almond, a slit — or shut */
+    [-8, 8].forEach(ex => {
+      if (blink) { ctx.strokeStyle = '#1a1a20'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(ex - 4.5, -2); ctx.quadraticCurveTo(ex, 0.5, ex + 4.5, -2); ctx.stroke(); return; }
+      ctx.fillStyle = '#9dff6a';
+      ctx.beginPath(); ctx.ellipse(ex, -2, 5, 3.6, ex < 0 ? 0.15 : -0.15, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#0b0e10';
+      ctx.beginPath(); ctx.ellipse(ex, -2, 1.1, 3.2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(ex + 1.2, -4.2, 1.4, 1.4);
+    });
+    /* the nose, the mouth, the whiskers */
+    ctx.fillStyle = '#e07a8a';
+    ctx.beginPath(); ctx.moveTo(-2.6, 4); ctx.lineTo(2.6, 4); ctx.lineTo(0, 6.6); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(20,20,26,0.8)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, 6.6); ctx.lineTo(0, 8.5); ctx.quadraticCurveTo(-2.5, 10.5, -4.5, 9); ctx.moveTo(0, 8.5); ctx.quadraticCurveTo(2.5, 10.5, 4.5, 9); ctx.stroke();
+    ctx.strokeStyle = 'rgba(240,240,250,0.7)'; ctx.lineWidth = 0.8;
+    [[-1, 0], [-1, 2.5], [1, 0], [1, 2.5]].forEach(([sd, dy]) => {
+      ctx.beginPath(); ctx.moveTo(sd * 7, 7 + dy); ctx.quadraticCurveTo(sd * 16, 5 + dy * 1.5, sd * 26, 6 + dy * 2.2); ctx.stroke();
+    });
+    ctx.restore();
+    ctx.restore();
+  }
 })();
 
 if (typeof window !== 'undefined') window.RewardView = RewardView;
