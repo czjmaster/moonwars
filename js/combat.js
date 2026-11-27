@@ -161,6 +161,7 @@ class Combat {
     this.enemyEscapeActive  = false;
     this._enemyEscapeT      = 0;
     this.ENEMY_ESCAPE_TIME  = 11.0;
+    this.BURN_GONE          = 3.0;    // update268: s of a lit FULL BURN before they are gone
     this._escapeNotice      = false; // one-shot flag for the game layer
     /* The wreckage of the LAST fight is not this one's (update93b). */
     this.salvage            = null;
@@ -569,6 +570,18 @@ class Combat {
         }
       }
     }
+
+    /* A LIT FULL BURN IS THEIR WAY OUT (update268, jj 27.11: „jak full burn naładuje przeciwnik, to statek znika — jest
+       ucieczka; teraz nie znika, tylko przyspiesza"): the burn shows for BURN_GONE seconds — her flame grows, she pulls
+       away — and then she is gone, as a jump. Kill her engines (or her helm) in those seconds and the burn dies with them. */
+    if (this.enemyShip.fullBurn && !this.enemyShip.destroyed && !this.enemyShip.doomed) {
+      const ee = this.enemyShip.getSystem('engines');
+      if (!ee || ee.isDisabled()) { this.enemyShip.fullBurn = false; this._burnGoneT = 0; }
+      else {
+        this._burnGoneT = (this._burnGoneT ?? 0) + dt;
+        if (this._burnGoneT >= this.BURN_GONE) { this._burnGoneT = 0; this.state = COMBAT_STATE.ENEMY_FLED; return; }
+      }
+    } else this._burnGoneT = 0;
 
     // The tractor's hold (update171)
     if (this.tractor) this._updateTractor(dt);

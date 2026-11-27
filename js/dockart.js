@@ -307,7 +307,9 @@ const DockArt = (() => {
       const bx = P.x0 + w * 0.08, bw = w * 0.84, by = P.y0 + h * 0.2, bh = h * 0.8;
       const top = bay ? P.well.y0 + H_ * 0.7 : by + bh * 0.35;
       const fBot = P.y1 + (floorY - P.y1) * p, fTop = fBot - h;
-      if (p > 0.002) {
+      /* update268 (jj 27.11: „jak się schowa, przeskakuje na starą grafikę — jakby stopka wylądowała z przodu na
+         kadłubie"): in her bay the mount stays drawn with the gear up too — no jump back to her picture's pad */
+      if (p > 0.002 || bay) {
         if (bay) {
           /* HER GEAR BAY (update235, the Aquarius standard): the yard's mount fills the bay — the pad was tucked into
              its bottom; it goes down, the mount stays, and the strut comes out of the mount's cylinder */

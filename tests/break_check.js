@@ -15735,7 +15735,7 @@ const BREAKS = [
   {
     name: "#194 the burn is not told",
     file: F("game.js"),
-    from: "      UI.notify('⚠ FULL BURN — they are pulling away flat out. Catch them, or hit their ENGINES before they are off the screen!', 'alert');",
+    from: "      UI.notify('⚠ FULL BURN — they are breaking away! Hit their ENGINES now, or they are gone in seconds!', 'alert');",
     to:   "      void 0;",
   },
   {
@@ -16249,7 +16249,7 @@ const BREAKS = [
   {
     name: "#199 the bay open with the gear up",
     file: F("dockart.js"),
-    from: "      if (p > 0.002) {\n        if (bay) {",
+    from: "      if (p > 0.002 || bay) {\n        if (bay) {",
     to:   "      if (true) {\n        if (bay) {",
   },
   {
@@ -19427,8 +19427,8 @@ const BREAKS = [
   {
     name: "#263 no menu on her",
     file: F('game.js'),
-    from: "      if (fbay) { _bodyMenu = null; _fighterMenu = { roomId: fbay.roomId, x: mx, y: my }; _pressConsumed = true; return; }",
-    to:   "      if (false) { _bodyMenu = null; _fighterMenu = { roomId: fbay.roomId, x: mx, y: my }; _pressConsumed = true; return; }",
+    from: "      if (fbay) { _bodyMenu = null; _fighterMenu = { roomId: fbay.roomId, x: mx, y: my }; return; }",
+    to:   "      if (false) { _bodyMenu = null; _fighterMenu = { roomId: fbay.roomId, x: mx, y: my }; return; }",
   },
   {
     name: "#263 a carrier without her robot",
@@ -19601,6 +19601,25 @@ const BREAKS = [
     from: "    im = s.crop(fit(s, b)).resize",
     to:   "    im = s.crop(tuple(int(v) for v in b)).resize",
   },
+  /* ── update268: jj 27.11 — gear, glasses, the hangar's word, the pilot, the burn, the ring, her menu, the runaway, Geb ── */
+  { name: "#268 the picture's pad back when the gear is up", file: F('dockart.js'),
+    from: "      if (p > 0.002 || bay) {\n        if (bay) {", to: "      if (p > 0.002) {\n        if (bay) {" },
+  { name: "#268 glasses over the hair again", file: F('crewlayers.js'),
+    from: "    const onFace = pl.acc >= 0 && pl.acc <= ACC_FACE_LAST;", to: "    const onFace = false;" },
+  { name: "#268 the word under the hangar only a word", file: F('renderer.js'),
+    from: "      _powerClickZones.push({ x: cx, y: fBot, w: g.colW, h: 13, sysActivateIndex: ship.systems.indexOf(sys), label: true });", to: "      void 0;" },
+  { name: "#268 the pilot down in his seat", file: F('fighters.js'),
+    from: "  PILOT_V: 29.5,", to: "  PILOT_V: 23," },
+  { name: "#268 a full burn only speeds them up", file: F('combat.js'),
+    from: "        if (this._burnGoneT >= this.BURN_GONE) {", to: "        if (false) {" },
+  { name: "#268 a pilot in the fighter still selected", file: F('ui.js'),
+    from: "    _selected = _selected.filter(c => c && !c.dead && !c.dying && !c._inFighter);", to: "    _selected = _selected.filter(c => c && !c.dead && !c.dying);" },
+  { name: "#268 her menu eats the next click", file: F('game.js'),
+    from: "      if (fbay) { _bodyMenu = null; _fighterMenu = { roomId: fbay.roomId, x: mx, y: my }; return; }", to: "      if (fbay) { _bodyMenu = null; _fighterMenu = { roomId: fbay.roomId, x: mx, y: my }; _pressConsumed = true; return; }" },
+  { name: "#268 a runaway on their deck comes home anyway", file: F('game.js'),
+    from: "        if (c._escapee) { _leaveRunaway(c, opts); return; }   // update268: he never got off their hull\n", to: "" },
+  { name: "#268 Geb's top drive a short flame", file: F('ship.js'),
+    from: "    flames: [[166, 105.8, -1, 0, 42, 32],", to: "    flames: [[166, 105.8, -1, 0, 26, 19.8]," },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

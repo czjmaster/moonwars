@@ -324,6 +324,7 @@ const CrewLayers = (() => {
      6 side fringe, 7 afro, 8 slicked back, 9 bob, 10 spiky, 11 receding */
   const P_HAIR = { short: [0, 8, 10], buzz: [1, 11], long: [2, 7, 9], bun: [3], mohawk: [4], bald: [-1], tail: [5], fringe: [6] };
   const P_GLASSES = { round: 0, square: 1, shades: 2, goggles: 4 };
+  const ACC_FACE_LAST = 9;   // acc 0-5 glasses / goggles / monocle, 6-9 a patch or a scar: on his face, under his hair
   const P_CYBER_M = [16, 18, 19, 20, 21], P_CYBER_F = [17, 18, 21];
   /** The portrait's parts for a man: cells of CREW2P.index. */
   function portraitPlan(seed, race, asleep = false) {
@@ -465,8 +466,12 @@ const CrewLayers = (() => {
     if (lm) { const lc = canvas(P.cw, P.ch), lg = lc.getContext('2d'); lg.drawImage(lm, 0, 0); if (mulInPlace(lg, P.cw, P.ch, lipsOf(t.skin))) g.drawImage(lc, 0, 0); }
     part(ix.eyes[pl.eyes], t.hairCol);
     if (pl.beard >= 0) part(ix.beard[pl.beard], t.hairCol);
+    /* glasses, a monocle, a patch or a scar UNDER his hair (update268, jj 27.11: „okulary wchodzą na włosy, powinny
+       być pod włosami"); a headband, a cap, a beanie, an earring stay over it */
+    const onFace = pl.acc >= 0 && pl.acc <= ACC_FACE_LAST;
+    if (onFace) part(ix.acc[pl.acc], null);
     if (pl.hair >= 0) part(ix.hair[pl.hair], t.hairCol);
-    if (pl.acc >= 0) part(ix.acc[pl.acc], null);
+    if (pl.acc >= 0 && !onFace) part(ix.acc[pl.acc], null);
     /* the shield's thin rim round his head — inside the frame now (update265, jj 26.11: „na górze dalej jest trochę hełm
        przycięty"): centred at 0.43 with a radius of 0.47 its top ran 5 px off the picture */
     if (!bare) drawShield(g, P.cw / 2, P.ch * 0.45, P.cw * 0.43, 0);

@@ -323,8 +323,12 @@ const UI = (() => {
   function deselectCrew() { _selected = []; }
 
   function _pruneSelection() {
-    _selected = _selected.filter(c => c && !c.dead && !c.dying);
+    /* …and nobody sitting in a fighter (update268, jj 27.11: „przy BOARD w miejscu, gdzie stał załogant, zostaje
+       zielona otoczka zaznaczenia — powinna znikać") */
+    _selected = _selected.filter(c => c && !c.dead && !c.dying && !c._inFighter);
   }
+  /** One hand off the selection (update268: he climbed into a fighter). */
+  function unselect(c) { _selected = _selected.filter(k => k !== c); }
 
   /** First selected member (legacy single-crew callers) */
   function getSelectedCrew() { _pruneSelection(); return _selected[0] ?? null; }
@@ -1880,7 +1884,7 @@ const UI = (() => {
     selectCrew,
     selectCrewGroup,
     getSelectedCrewAll,
-    deselectCrew,
+    deselectCrew, unselect,
     getSelectedCrew,
     handlePowerClick,
     openStation,

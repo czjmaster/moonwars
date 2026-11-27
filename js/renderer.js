@@ -3087,6 +3087,13 @@ const Renderer = (() => {
     ctx.textAlign = 'center';
     ctx.fillStyle = label.col;
     ctx.fillText(label.text, mid, fBot + 9);
+    /* THE WORD UNDER THE HANGAR IS A BUTTON TOO (update268, jj 27.11: „przycisk czy napis pod modułem energii hangaru —
+       LAUNCH nie odpala windy"): LAUNCH · RECALL · HOLD there does what the icon does; the cloak's READY likewise */
+    if (clickable && (sys.type === 'cloaking' || (sys.type === 'hangar' && ship.isPlayer && typeof Fighters !== 'undefined'))) {
+      ctx.strokeStyle = label.col; ctx.globalAlpha = 0.45; ctx.lineWidth = 1;
+      ctx.strokeRect(cx + 1.5, fBot + 1.5, g.colW - 3, 10); ctx.globalAlpha = 1;
+      _powerClickZones.push({ x: cx, y: fBot, w: g.colW, h: 13, sysActivateIndex: ship.systems.indexOf(sys), label: true });
+    }
     return fBot;
   }
 

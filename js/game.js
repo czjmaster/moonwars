@@ -33,7 +33,7 @@ const Game = (() => {
 const MENU_ITEMS = ['ENTER BASE','OPTIONS','NEW GAME'];
 /* THE BUILD ON THE TITLE SCREEN (update254, jj 23.11): 0.<update> until the release (then 1.0.0). Raised with
    every package. */
-const GAME_VERSION = '0.267';
+const GAME_VERSION = '0.268';
 /* THE TITLE SCREEN (update123, jj: "co do menu zrób to, co napisałeś"):
    your own hull drifting past the Moon with its roof on, a line under
    ENTER BASE saying what is waiting in there, and NEW GAME — behind a
@@ -2200,9 +2200,12 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
          only ever say no. The player asked for exactly this: "menu nie
          ma jak nie jest zaznaczony załogant". */
       const sel = UI.getSelectedCrewAll();
-      /* HER MENU, with a hand selected and the click on her on her platform (update263) */
-      const fbay = sel.length && typeof Fighters !== 'undefined' ? Fighters.boardAt(_playerShip, mx, my) : null;
-      if (fbay) { _bodyMenu = null; _fighterMenu = { roomId: fbay.roomId, x: mx, y: my }; _pressConsumed = true; return; }
+      /* HER MENU, the click on her on her platform (update263) — WITH NOBODY SELECTED TOO, and NOT EATING THE NEXT
+         LEFT CLICK (update268, jj 27.11: „BOARD i OUT nie działa, nie odpowiada płynnie i nie za każdym razem, zamula"):
+         the right press marked itself spent, and the left release on BOARD/OUT that followed was read as part of it and
+         dropped — every first click on the menu went nowhere. OUT needs nobody selected; BOARD says „select a hand". */
+      const fbay = typeof Fighters !== 'undefined' ? Fighters.boardAt(_playerShip, mx, my) : null;
+      if (fbay) { _bodyMenu = null; _fighterMenu = { roomId: fbay.roomId, x: mx, y: my }; return; }
       _fighterMenu = null;
       const body = sel.length ? _bodyUnderCursor(mx, my) : null;
       /* ANCHORED ON THE MAN, NOT ON THE CURSOR (update69). The menu
@@ -3649,6 +3652,13 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   }
 
   /** Survivors head home the moment a fight ends any way at all */
+  /** A thawed runaway who never got off their hull (update268): he goes down with it, or stays theirs — not ours. */
+  function _leaveRunaway(c, opts) {
+    if (_enemyShip) _enemyShip.crew = _enemyShip.crew.filter(k => k !== c);
+    c._escapee = false;
+    if (opts.aboardLost && !c.dead) c.killOutright(opts.aboardLost);
+    UI.notify(`${c.name} never made it off their hull.`, 'warn');
+  }
   function _recoverBoarders(opts = {}) {
     /* opts.aboardLost / opts.flightLost (update93b): a reason, and the men
        on the enemy deck / in the pod are LOST for it instead of coming
@@ -3693,6 +3703,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         // If they'd already boarded the enemy, pull them off it first.
         if (_enemyShip) _enemyShip.crew = _enemyShip.crew.filter(k => k !== m.c);
         const inPod = m.phase !== 'inside' && m.phase !== 'muster';
+        /* A RUNAWAY STILL ON THEIR DECK IS NOT OURS (update268, jj 27.11: „jak rozmrozimy u przeciwnika zamrożonego
+           załoganta, to mimo że nie uciekł do nas, a my zniszczyliśmy statek przeciwnika, dostajemy go — tylko wtedy,
+           kiedy uciekinier ucieknie do nas na statek, zostaje"): only a man who got off their hull comes with us. */
+        if (m.c._escapee && m.phase === 'muster') { _leaveRunaway(m.c, opts); return; }
         if (inPod && opts.flightLost) { lose(m.c, opts.flightLost); return; }
         if (m.phase === 'inside' && opts.aboardLost) { lose(m.c, opts.aboardLost); return; }
         _returnBoarder(m.c);
@@ -3717,6 +3731,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         if (seen.has(c)) return;      // already handled above
         seen.add(c);
         if (c.dead) return;
+        if (c._escapee) { _leaveRunaway(c, opts); return; }   // update268: he never got off their hull
         if (opts.aboardLost) lose(c, opts.aboardLost);
         else _returnBoarder(c);
       });
@@ -4997,7 +5012,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     else if (_tn === 'held') UI.notify('⚓ They have the TRACTOR running again — you are held.', 'alert');
     else if (_tn === 'provoked') UI.notify('⚠ You fired on the patrol — they shoot back. Break their TRACTOR, out-power it, or beat them.', 'alert');
     if (CombatManager.consumeBurnNotice?.()) {
-      UI.notify('⚠ FULL BURN — they are pulling away flat out. Catch them, or hit their ENGINES before they are off the screen!', 'alert');
+      UI.notify('⚠ FULL BURN — they are breaking away! Hit their ENGINES now, or they are gone in seconds!', 'alert');
       Audio.sfx.bossWarning?.();
     }
     if (CombatManager.consumeEscapeNotice()) {

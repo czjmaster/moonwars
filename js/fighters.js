@@ -88,6 +88,7 @@ const FIGHTER = {
   H: 36,
   BODY: { SKID: 3, FLOOR: 6, CEIL: 29, ROOF: 32, TOP: 36, START: 12, PART: 3, MOD_W: 24, HELM_W: 28 },
   CLEAR: 6,                // px between the keel and her canopy when the lift is all the way down
+  PILOT_V: 29.5,           // update268: the pilot's helmet centre (v up from her keel) — in the canopy, CEIL-6 … TOP
   SHOT: { label: 'Fighter laser', type: 'laser', damage: 1, shield_damage: 1, shieldDamage: 1, hull_damage: 1,
           moduleDamage: 1, crewDamage: [6, 14], shots: 1, projectileSpeed: 420, fireChance: 0.03, breachChance: 0 },
   POSTS: [20, 20],         // u in from each end of the platform (jj: „trochę obok brzegów")
@@ -193,6 +194,7 @@ const Fighters = (() => {
     if (typeof TASK !== 'undefined') c.task = TASK.IDLE;
     ship.crew = ship.crew.filter(k => k !== c);
     c.roomId = null; c._inFighter = true;
+    if (typeof UI !== 'undefined') UI.unselect?.(c);              // no green ring left where he stood (update268)
     /* A ROBOT RIDES IN THE SOCKET, NOT AT THE STICK (update263, jj 26.11: „robot nie może prowadzić sam myśliwca"):
        he mends her modules beside her own droid; the stick is a man's. */
     if (c.isRobot) f.bot = c; else f.pilot = c;
@@ -630,7 +632,7 @@ const Fighters = (() => {
       const f = sys._fighter, room = roomOf(ship, sys);
       if (!f || !room || f.state !== 'docked' || f.lift > 0) continue;   // a seat taken or not: the menu says (update263)
       const G = geom(ship, room), s = onPlatform(ship, G, 0);
-      if (x >= s.x - s.len / 2 && x <= s.x + s.len / 2 && y >= s.floor - G.fighterH - 4 && y <= s.floor + 4) return sys;
+      if (x >= s.x - s.len / 2 - 6 && x <= s.x + s.len / 2 + 6 && y >= s.floor - G.fighterH - 10 && y <= s.floor + 6) return sys;   // a little slack (update268)
     }
     return null;
   }
@@ -956,9 +958,11 @@ const Fighters = (() => {
     ctx.fillStyle = '#56606c'; ctx.fillRect(...R(SPANS.mods[0][0], SPANS.mods[3][0], B.CEIL - 4.6, B.CEIL - 4));
     /* the cockpit: the seat, the pilot's face in his helmet, the canopy */
     const [ha, hb] = SPANS.mods[3];
-    poly([[ha + 4, B.FLOOR + 2], [ha + 4, B.FLOOR + 14], [ha + 7, B.FLOOR + 14], [ha + 9, B.FLOOR + 4], [ha + 15, B.FLOOR + 2]], '#3a4250', false);
+    /* his head UNDER THE CANOPY (update268, jj 27.11: „głowa załoganta wyżej — tam, gdzie szybka samolotu"): the seat's
+       back up to the glass, his helmet in the middle of it (PILOT_V) */
+    poly([[ha + 4, B.FLOOR + 2], [ha + 4, B.CEIL - 4], [ha + 7, B.CEIL - 4], [ha + 9, B.FLOOR + 4], [ha + 15, B.FLOOR + 2]], '#3a4250', false);
     const pilot = f?.pilot ?? null;
-    if (pilot) drawPilot(ctx, pilot, X(ha + 12), Y(B.FLOOR + 17), 13 * Math.min(kx, ky), face);
+    if (pilot) drawPilot(ctx, pilot, X(ha + 12), Y(FIGHTER.PILOT_V), 13 * Math.min(kx, ky), face);
     ctx.fillStyle = '#4a5260'; ctx.fillRect(...R(hb - 8, hb - 2, B.FLOOR + 8, B.FLOOR + 10));         // the stick and the board
     poly([[ha - 1, B.ROOF - 0.5], [ha + 5, B.TOP], [hb - 6, B.TOP], [hb + 6, B.ROOF - 3], [hb, B.CEIL - 6], [ha + 2, B.CEIL - 6]], glass);
     ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.beginPath(); ctx.moveTo(X(ha + 7), Y(B.TOP - 1)); ctx.lineTo(X(hb - 7), Y(B.TOP - 1)); ctx.stroke();

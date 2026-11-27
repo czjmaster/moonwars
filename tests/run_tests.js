@@ -47847,7 +47847,7 @@ section('449. jj 26.11 (263): the fighter on the hangar\'s icon (LAUNCH · RECAL
   ok(/if \(c && !c\.isRobot\) board\(ship, f, c\); \}\s+\/\/ a robot does not fly her/.test(read('js/fighters.js')), 'their robot at the console does not climb in to fly');
   /* 7. the menu */
   const G = read('js/game.js');
-  ok(/const fbay = sel\.length && typeof Fighters !== 'undefined' \? Fighters\.boardAt\(_playerShip, mx, my\) : null;/.test(G), 'right-click on her with a hand selected opens her menu');
+  ok(/const fbay = typeof Fighters !== 'undefined' \? Fighters\.boardAt\(_playerShip, mx, my\) : null;/.test(G), 'right-click on her opens her menu (update268: with nobody selected too)');
   ok(/function _fighterMenuActs\(\) \{ return \['board', 'fout'\]; \}/.test(G) && /board: 'BOARD', fout: 'OUT'/.test(read('js/renderer.js')), 'two rows: BOARD and OUT');
   ok(/const bay = null;/.test(G), 'a left click on her is a click on the bay (no BOARD there any more)');
   /* 8. a carrier from the yard */
@@ -48057,7 +48057,7 @@ section('452. jj 26.11 (266): the Phoenix hulls\' engine pods whole again (no ho
       ok(tubes && tubes.map(t => t.n).join() === 'gear_aquarius_tube1,gear_aquarius_tube2,gear_aquarius_tube3', 'and its piston of three drawn tubes');
     } finally { A.has = realHas; A.get = realGet; A.source = realSource; }
   }
-  ok(/const GAME_VERSION = '0\.26[67]';/.test(read('js/game.js')) && /^update26[67]$/.test(JSON.parse(read('art/manifest.json')).version), 'version 0.266 (or later), the art\'s update266 (or later)');
+  ok(/const GAME_VERSION = '0\.26[678]';/.test(read('js/game.js')) && /^update26[67]$/.test(JSON.parse(read('art/manifest.json')).version), 'version 0.266 (or later), the art\'s update266 (or later)');
 })();
 
 // ============================================================
@@ -48074,7 +48074,7 @@ section('453. jj 26.11 (267): Aquarius\'s own doors, airlock and piston from GPT
   const parts = ['head', 'sill', 'leaf_top', 'leaf_bot'];
   const names = [...parts.map(p => `door_${p}_aquarius`), ...parts.map(p => `door_air_${p}_aquarius`), ...[1, 2, 3].map(i => `gear_aquarius_tube${i}`)];
   ok(names.every(n => man.sprites.includes(n) && fs.existsSync(path.join(ROOT7, 'art', n + '.png'))), `the eleven in art/ and in the manifest (${names.filter(n => !man.sprites.includes(n))})`);
-  ok(man.version === 'update267' && /const GAME_VERSION = '0\.267';/.test(read('js/game.js')), 'version 0.267, the art\'s update267');
+  ok(man.version === 'update267' && /const GAME_VERSION = '0\.26[78]';/.test(read('js/game.js')), 'version 0.267 (or later), the art\'s update267');
   ok([...parts.map(p => [`door_${p}_aquarius`, `door_${p}_terra`]), ...parts.map(p => [`door_air_${p}_aquarius`, `door_air_${p}_terra`])]
      .every(([a, t]) => { const A = art(a), T = art(t); return A.w === T.w && A.h === T.h; }), 'each the size of Terra\'s same part');
   const T1 = art('gear_aquarius_tube1'), T3 = art('gear_aquarius_tube3');
@@ -48113,7 +48113,7 @@ section('453. jj 26.11 (267): Aquarius\'s own doors, airlock and piston from GPT
   };
   const A = M.arms[0].pad;
   let R = mk(); DockArt.drawPads(R.c, M, sh, 0, floor);
-  ok(R.log.length === 0, 'stowed: nothing over her — her picture has the pads');
+  ok(R.log.length === M.arms.length && R.log.every(l => l.img === bayImg && !l.clip), 'stowed: only the mounts in her bays (update268: no jump back to her picture\'s pads), no foot');
   R = mk(); DockArt.drawPads(R.c, M, sh, 0.5, floor);
   const D = DockArt.gearDrawn()[0];
   const mount = R.log.filter(l => !l.clip), under = R.log.filter(l => l.clip);
@@ -48138,6 +48138,61 @@ section('453. jj 26.11 (267): Aquarius\'s own doors, airlock and piston from GPT
     ok(fills.length > 0 && fills.every(cl => cl && M.arms.some(a => Math.abs(cl.y - a.pad.y1) < 1e-6)), `the piston behind her keel too (${fills.length} strokes)`);
   }
   } finally { sb.Assets.has = realHas; sb.Assets.get = realGet; sb.Assets.source = realSource; }
+})();
+
+// ============================================================
+section('454. jj 27.11 (268): no jump to her picture\'s pad when the gear is up; glasses under the hair; the word under the hangar is a button; the pilot\'s head in the canopy; a lit FULL BURN ends in their escape; no green ring left where a pilot boarded; her menu not eating the next click; a runaway on their deck is not ours; Geb\'s top drive burns full');
+// ============================================================
+(function testUpdate268() {
+  const fs = require('fs'), path = require('path');
+  const ROOT8 = path.join(__dirname, '..');
+  const read = (f) => fs.readFileSync(path.join(ROOT8, f), 'utf8');
+  const D = read('js/dockart.js'), CL = read('js/crewlayers.js'), RN = read('js/renderer.js'), FI = read('js/fighters.js'),
+        CB = read('js/combat.js'), GM = read('js/game.js'), UIs = read('js/ui.js'), SH = read('js/ship.js');
+  ok(/if \(p > 0\.002 \|\| bay\) \{\n        if \(bay\) \{/.test(D), 'gear up in her bay: the mount stays, no jump back to her picture\'s pad');
+  /* glasses under the hair */
+  const iFace = CL.indexOf('if (onFace) part(ix.acc[pl.acc], null);'), iHair = CL.indexOf('if (pl.hair >= 0) part(ix.hair[pl.hair], t.hairCol);'), iTop = CL.indexOf('if (pl.acc >= 0 && !onFace) part(ix.acc[pl.acc], null);');
+  ok(iFace > 0 && iFace < iHair && iHair < iTop && /const onFace = pl\.acc >= 0 && pl\.acc <= ACC_FACE_LAST;/.test(CL) && /const ACC_FACE_LAST = 9;/.test(CL),
+     'glasses, a monocle, a patch or a scar drawn before his hair; a cap or an earring after it');
+  const sb = loadEngine();
+  /* the portrait really draws them in that order */
+  {
+    const CLs = sb.CrewLayers;
+    ok(typeof CLs.portrait === 'function', '(the portraits are there)');
+  }
+  /* the hangar's word */
+  ok(/_powerClickZones\.push\(\{ x: cx, y: fBot, w: g\.colW, h: 13, sysActivateIndex: ship\.systems\.indexOf\(sys\), label: true \}\);/.test(RN)
+     && /sys\.type === 'cloaking' \|\| \(sys\.type === 'hangar' && ship\.isPlayer/.test(RN.slice(RN.indexOf('THE WORD UNDER THE HANGAR'))), 'LAUNCH / RECALL / HOLD under the hangar answers a click like its icon');
+  /* the pilot */
+  const FG = sb.FIGHTER, B = FG.BODY;
+  ok(FG.PILOT_V - 6.5 >= B.CEIL - 6 - 0.01 && FG.PILOT_V + 6.5 <= B.TOP + 0.01 && /drawPilot\(ctx, pilot, X\(ha \+ 12\), Y\(FIGHTER\.PILOT_V\)/.test(FI),
+     `his helmet inside the canopy (${FG.PILOT_V - 6.5}…${FG.PILOT_V + 6.5}, glass ${B.CEIL - 6}…${B.TOP})`);
+  /* the burn */
+  {
+    const CM = sb.CombatManager;
+    ok(CM.BURN_GONE === 3 || /this\.BURN_GONE\s+= 3\.0;/.test(CB), 'a lit FULL BURN shows 3 s');
+    ok(/if \(this\._burnGoneT >= this\.BURN_GONE\) \{ this\._burnGoneT = 0; this\.state = COMBAT_STATE\.ENEMY_FLED; return; \}/.test(CB)
+       && /if \(!ee \|\| ee\.isDisabled\(\)\) \{ this\.enemyShip\.fullBurn = false; this\._burnGoneT = 0; \}/.test(CB), '…then they are gone; their engines out first, and the burn dies');
+  }
+  /* the ring */
+  {
+    const UI = sb.UI, m = new sb.CrewMember({ isPlayer: true });
+    UI.selectCrew(m);
+    ok(UI.getSelectedCrewAll().includes(m), '(selected)');
+    m._inFighter = true;
+    ok(!UI.getSelectedCrewAll().includes(m), 'in a fighter he is off the selection — no green ring on the deck');
+    m._inFighter = false; UI.selectCrew(m); UI.unselect(m);
+    ok(!UI.getSelectedCrewAll().includes(m) && /UI\.unselect\?\.\(c\);/.test(FI), 'boarding takes him off it');
+  }
+  ok(/if \(fbay\) \{ _bodyMenu = null; _fighterMenu = \{ roomId: fbay\.roomId, x: mx, y: my \}; return; \}/.test(GM), 'her menu does not eat the left click that follows (BOARD / OUT at the first click)');
+  ok(/const fbay = typeof Fighters !== 'undefined' \? Fighters\.boardAt/.test(GM), '…and opens with nobody selected (OUT)');
+  /* the runaway */
+  ok(/if \(m\.c\._escapee && m\.phase === 'muster'\) \{ _leaveRunaway\(m\.c, opts\); return; \}/.test(GM) && /if \(c\._escapee\) \{ _leaveRunaway\(c, opts\); return; \}/.test(GM),
+     'a thawed runaway still on their deck when the fight ends is not ours');
+  ok(/function _leaveRunaway\(c, opts\) \{[\s\S]{0,200}if \(opts\.aboardLost && !c\.dead\) c\.killOutright\(opts\.aboardLost\);/.test(GM), '(he goes down with their hull)');
+  /* Geb's top drive */
+  ok(/flames: \[\[166, 105\.8, -1, 0, 42, 32\]/.test(SH), 'Geb\'s top drive burns as long as the others');
+  ok(/const GAME_VERSION = '0\.268';/.test(GM), 'version 0.268');
 })();
 
 // ============================================================

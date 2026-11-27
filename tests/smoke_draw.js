@@ -482,8 +482,9 @@ step('power bar — the CLOAK icon FIRES, every other icon TOGGLES', () => {
   Renderer.drawHUD({ playerShip: s });
   const zones = Renderer.getPowerClickZones();
   const cloakIdx = s.systems.indexOf(cl);
-  const fire = zones.filter(z => z.sysActivateIndex !== undefined);
+  const fire = zones.filter(z => z.sysActivateIndex !== undefined && !z.label);   // the icon's (update268: the word under it is one too)
   assert(fire.length === 1, `exactly one activate zone expected, got ${fire.length}`);
+  assert(zones.filter(z => z.sysActivateIndex === cloakIdx && z.label).length === 1, 'and the word under it fires it too (update268)');
   assert(fire[0].sysActivateIndex === cloakIdx,
     'the activate zone must point at the cloaking module');
   assert(!zones.some(z => z.sysToggleIndex === cloakIdx),
