@@ -1966,6 +1966,10 @@ class CrewMember {
            bodies and errands. THIS is where a crewman picks up work. */
         if (this.isPrisoner) break;
         if (this.isPassenger) break;       // …nor a passenger: he paid to sit, not to work (update162)
+        /* …nor a man walking under the fighter's cockpit to climb in (update270) — while the fighter's step still runs
+           (it zeroes `_climbTick`); a fight that ended under him, or a save, lets him go after a few seconds. */
+        if (this._climbing && (this._climbTick = (this._climbTick ?? 0) + 1) < 90) break;
+        if (this._climbing) this._climbing = false;
 
         // FTL behaviour: idle crew automatically handle problems in their room
         // Priority: fire > breach > repair damaged system

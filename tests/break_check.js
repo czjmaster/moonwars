@@ -19637,6 +19637,23 @@ const BREAKS = [
     from: "      if (back) {\n        back._resumeRepair = null;", to: "      if (false) {\n        back._resumeRepair = null;" },
   { name: "#269 the fire passes over the man going to mend its room", file: F('combat.js'),
     from: "                                             c.task === TASK.REPAIR && c.taskTarget === fireRoom) ?? null;", to: "                                             c.task === TASK.REPAIR && c.taskTarget === 'none') ?? null;" },
+  /* ── update270: jj 27.11 (A8) — the canopy ── */
+  { name: "#270 a man in the cockpit at once, no walk", file: F('fighters.js'),
+    from: "    if (!c.isRobot) {                                              // a man walks under her cockpit and climbs in (update270)", to: "    if (false) {" },
+  { name: "#270 the canopy never opens", file: F('fighters.js'),
+    from: "    const want = f.climb && (f.climb.phase === 'open' || f.climb.phase === 'climb') ? 1 : 0;", to: "    const want = 0;" },
+  { name: "#270 the canopy drawn where it is shut", file: F('fighters.js'),
+    from: "    const sl = -(f?.canopy ?? 0) * FIGHTER.CANOPY_SLIDE * (hb - ha);", to: "    const sl = 0;" },
+  { name: "#270 the lift goes with the canopy open", file: F('fighters.js'),
+    from: " && !f.climb && !(f.canopy > 0);   // the canopy shut first (update270)", to: ";" },
+  { name: "#270 OUT drops him on the deck at once", file: F('fighters.js'),
+    from: "      climbOut(ship, sys, f); f.order = 'hold';", to: "      disembark(ship, sys, f); f.order = 'hold';" },
+  { name: "#270 he does not go up her side", file: F('fighters.js'),
+    from: "        c.x = spot.x; c.y = spot.floor + (spot.seat - spot.floor) * p;", to: "        c.x = spot.x;" },
+  { name: "#270 the idle walk drags him off the cockpit", file: F('crew.js'),
+    from: "        if (this._climbing && (this._climbTick = (this._climbTick ?? 0) + 1) < 90) break;\n", to: "" },
+  { name: "#270 their canopy left as it was", file: F('fighters.js'),
+    from: "    if (!c.isRobot && !f.climb) f.canopy = 1;", to: "    void 0;" },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

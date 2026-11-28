@@ -47171,6 +47171,8 @@ section('442. jj 22.11 22:27 (256): the fighter on orders — BOARD a selected h
      'a click on her on the platform finds her bay (BOARD)');
   pilot._boardFighter = room.id; place(pilot, 1);
   run(4);
+  ok(f.climb?.c === pilot && f.climb.dir === 'in' && !f.pilot, 'update270: he walks under her cockpit first, on his own legs');
+  for (let i = 0; i < 300 && (f.pilot !== pilot || f.climb); i++) { if (!pilot._inFighter) pilot.update(0.05, player); run(1); }   // his legs: the crew's own step
   ok(f.pilot === pilot && !player.crew.includes(pilot) && pilot._inFighter, 'the hand sent to her climbs in at the bay');
   /* update263: no buttons on the bay's wall — the hangar's icon on the power bar is her order */
   ok(Fighters.buttons(player).length === 0, 'no buttons in the module any more (update263)');
@@ -47211,7 +47213,9 @@ section('442. jj 22.11 22:27 (256): the fighter on orders — BOARD a selected h
   Fighters.order(player, hs, 'recall');
   for (let i = 0; i < 120; i++) { [op.x, op.y] = player.stationSlot(room, 0); op.roomId = room.id; Fighters.idle(0.05, player); }
   ok(f.state === 'docked' && !Fighters.away(player).length, 'recalled on the map: docked');
-  ok(Fighters.order(player, hs, 'out').ok && !f.pilot && player.crew.includes(pilot), 'PILOT OUT: he climbs out');
+  ok(Fighters.order(player, hs, 'out').ok, 'PILOT OUT ordered');
+  for (let i = 0; i < 120 && f.climb; i++) Fighters.idle(0.05, player);
+  ok(!f.pilot && player.crew.includes(pilot) && !f.climb, 'PILOT OUT: he climbs out (the canopy open, down her side, shut — update270)');
   /* left behind */
   f.state = 'outside'; f.pilot = pilot; player.crew = player.crew.filter(c => c !== pilot); pilot._inFighter = true;
   const lost = Fighters.abandon(player);
@@ -47818,7 +47822,7 @@ section('449. jj 26.11 (263): the fighter on the hangar\'s icon (LAUNCH · RECAL
   /* 3. a man at the stick */
   ok(Fighters.boardWhy(player, hs, pilot) === null, 'BOARD for a man: allowed');
   pilot._boardFighter = room.id; place(pilot, 1);
-  quiet(() => { for (let i = 0; i < 4; i++) Fighters.step(0.05, player, enemy, hs, true, CombatManager); });
+  quiet(() => { for (let i = 0; i < 400 && (f.pilot !== pilot || f.climb); i++) { if (!pilot._inFighter) pilot.update(0.05, player); Fighters.step(0.05, player, enemy, hs, true, CombatManager); } });   // update270: he walks under the cockpit and climbs
   ok(f.pilot === pilot && f.bot === bot, 'the man at the stick, the robot in the socket');
   ok(Fighters.boardWhy(player, hs, hands[2]) === 'she has a pilot', 'a third: she has a pilot');
   ok(Fighters.crewAway(player).includes(bot) && Fighters.crewAway(player).includes(pilot), 'both are counted away (the save keeps them)');
@@ -47837,9 +47841,11 @@ section('449. jj 26.11 (263): the fighter on the hangar\'s icon (LAUNCH · RECAL
   }
   /* 5. shot down: both eject; out: both out */
   quiet(() => Fighters.order(player, hs, 'hold'));
-  ok(Fighters.order(player, hs, 'out').ok && !f.pilot && !f.bot && player.crew.includes(pilot) && player.crew.includes(bot), 'OUT: the man and the robot onto the deck');
+  ok(Fighters.order(player, hs, 'out').ok && !f.bot && player.crew.includes(bot), 'OUT: the robot onto the deck at once');
+  quiet(() => { for (let i = 0; i < 120 && f.climb; i++) { if (!pilot._inFighter) pilot.update(0.05, player); Fighters.step(0.05, player, enemy, hs, true, CombatManager); } });
+  ok(!f.pilot && player.crew.includes(pilot), 'OUT: the man down her side after him (update270)');
   pilot._boardFighter = room.id; bot._boardFighter = room.id; place(pilot, 1); place(bot, 2);
-  quiet(() => { for (let i = 0; i < 4; i++) Fighters.step(0.05, player, enemy, hs, true, CombatManager); });
+  quiet(() => { for (let i = 0; i < 400 && (f.pilot !== pilot || f.bot !== bot || f.climb); i++) { if (!pilot._inFighter) pilot.update(0.05, player); Fighters.step(0.05, player, enemy, hs, true, CombatManager); } });
   f.state = 'out';
   quiet(() => Fighters.shootDown(player, f));
   ok(f.ejected.includes(pilot) && f.ejected.includes(bot) && !f.bot, 'shot down: both eject, picked up after the fight');
@@ -48057,7 +48063,7 @@ section('452. jj 26.11 (266): the Phoenix hulls\' engine pods whole again (no ho
       ok(tubes && tubes.map(t => t.n).join() === 'gear_aquarius_tube1,gear_aquarius_tube2,gear_aquarius_tube3', 'and its piston of three drawn tubes');
     } finally { A.has = realHas; A.get = realGet; A.source = realSource; }
   }
-  ok(/const GAME_VERSION = '0\.26[6789]';/.test(read('js/game.js')) && /^update26[67]$/.test(JSON.parse(read('art/manifest.json')).version), 'version 0.266 (or later), the art\'s update266 (or later)');
+  ok(/const GAME_VERSION = '0\.(26[6789]|270)';/.test(read('js/game.js')) && /^update26[67]$/.test(JSON.parse(read('art/manifest.json')).version), 'version 0.266 (or later), the art\'s update266 (or later)');
 })();
 
 // ============================================================
@@ -48074,7 +48080,7 @@ section('453. jj 26.11 (267): Aquarius\'s own doors, airlock and piston from GPT
   const parts = ['head', 'sill', 'leaf_top', 'leaf_bot'];
   const names = [...parts.map(p => `door_${p}_aquarius`), ...parts.map(p => `door_air_${p}_aquarius`), ...[1, 2, 3].map(i => `gear_aquarius_tube${i}`)];
   ok(names.every(n => man.sprites.includes(n) && fs.existsSync(path.join(ROOT7, 'art', n + '.png'))), `the eleven in art/ and in the manifest (${names.filter(n => !man.sprites.includes(n))})`);
-  ok(man.version === 'update267' && /const GAME_VERSION = '0\.26[789]';/.test(read('js/game.js')), 'version 0.267 (or later), the art\'s update267');
+  ok(man.version === 'update267' && /const GAME_VERSION = '0\.(26[789]|270)';/.test(read('js/game.js')), 'version 0.267 (or later), the art\'s update267');
   ok([...parts.map(p => [`door_${p}_aquarius`, `door_${p}_terra`]), ...parts.map(p => [`door_air_${p}_aquarius`, `door_air_${p}_terra`])]
      .every(([a, t]) => { const A = art(a), T = art(t); return A.w === T.w && A.h === T.h; }), 'each the size of Terra\'s same part');
   const T1 = art('gear_aquarius_tube1'), T3 = art('gear_aquarius_tube3');
@@ -48192,7 +48198,7 @@ section('454. jj 27.11 (268): no jump to her picture\'s pad when the gear is up;
   ok(/function _leaveRunaway\(c, opts\) \{[\s\S]{0,200}if \(opts\.aboardLost && !c\.dead\) c\.killOutright\(opts\.aboardLost\);/.test(GM), '(he goes down with their hull)');
   /* Geb's top drive */
   ok(/flames: \[\[166, 105\.8, -1, 0, 42, 32\]/.test(SH), 'Geb\'s top drive burns as long as the others');
-  ok(/const GAME_VERSION = '0\.26[89]';/.test(GM), 'version 0.268 (or later)');
+  ok(/const GAME_VERSION = '0\.(26[89]|270)';/.test(GM), 'version 0.268 (or later)');
 })();
 
 // ============================================================
@@ -48307,7 +48313,69 @@ section('455. jj 27.11 (269): their crew mends like a crew again — the man in 
     ai();
     ok(c.task === TASK.FIRE && c._resumeRepair == null, `the fire is in the room he was going to mend: he takes it, and the job is still his room (${c.task})`);
   }
-  ok(/const GAME_VERSION = '0\.269';/.test(read('js/game.js')), 'version 0.269');
+  ok(/const GAME_VERSION = '0\.2(69|70)';/.test(read('js/game.js')), 'version 0.269 (or later)');
+})();
+
+// ============================================================
+section('456. jj 27.11 (270): into the fighter and out of her — he walks under her cockpit, the canopy slides back, he climbs her side into the seat, it shuts; out the other way round; the lift waits for the canopy');
+// ============================================================
+(function testUpdate270() {
+  const quiet = (fn) => { const log = console.log, warn = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = log; console.warn = warn; } };
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const sb = loadEngine();
+  const { Ship, Fighters, FIGHTER, Save } = sb;
+  quiet(() => { Save.load(); Save.startRun(); });
+  const s = new Ship('enemy_geb', true, 40, 40); s._allocateDefaultPower();
+  quiet(() => { sb.makeStartingCrew().forEach(c => s.addCrew(c)); s.assignStations(); });
+  const sys = Fighters.hangars(s)[0], room = s.getRoomById(sys.roomId), f = Fighters.of(sys);
+  const man = s.crew.find(c => !c.isPet && !c.isRobot);
+  man.homeRoomId = room.id; [man.x, man.y] = s.stationSlot(room, 0); man.roomId = room.id; man._waypoints = []; man.task = 'idle';
+  const tick = () => quiet(() => { s.crew.forEach(c => c.update(0.05, s)); Fighters.idle(0.05, s); });
+  const spot = Fighters.cockpitSpot(s, room, f, Fighters.geom(s, room));
+  ok(FIGHTER.CANOPY_TIME === 0.4 && FIGHTER.CLIMB_TIME === 0.45 && FIGHTER.CANOPY_SLIDE === 0.8, 'the canopy 0.4 s, the climb 0.45 s, it slides back 0.8 of itself');
+  /* in */
+  man._boardFighter = room.id;
+  for (let i = 0; i < 60 && !f.climb && !f.pilot; i++) tick();
+  ok(f.climb?.dir === 'in' && f.climb.phase === 'walk' && !f.pilot && s.crew.includes(man), 'BOARD: he walks under her cockpit first, still on the deck');
+  let openBeforeIn = false, rose = false, minY = man.y;
+  for (let i = 0; i < 400 && (f.pilot !== man || f.climb); i++) {
+    tick();
+    if (!f.pilot && f.canopy > 0.5) openBeforeIn = true;
+    if (!man._inFighter) minY = Math.min(minY, man.y);
+  }
+  ok(Math.abs(man.x - spot.x) <= 3, `he climbed from under the cockpit (x ${Math.round(man.x)} — the cockpit at ${Math.round(spot.x)})`);
+  ok(openBeforeIn, 'the canopy slid back before he got in');
+  ok(minY < spot.floor - 4, `he went up her side (feet from ${Math.round(spot.floor)} up to ${Math.round(minY)})`);
+  ok(f.pilot === man && man._inFighter && !s.crew.includes(man) && f.canopy === 0 && !f.climb, 'in the seat, and the canopy shut after him');
+  /* the lift waits for the canopy */
+  f.canopy = 0.5;
+  ok(/!f\.climb && !\(f\.canopy > 0\)/.test(read('js/fighters.js')), 'LAUNCH: the lift does not move with the canopy open or a man on her side');
+  f.canopy = 0;
+  /* out */
+  const r = Fighters.order(s, sys, 'out');
+  ok(r.ok && f.pilot === man, 'OUT: ordered — he is still in her while the canopy opens');
+  let openFirst = false, sawOnSide = false;
+  for (let i = 0; i < 200 && f.climb; i++) {
+    if (f.pilot === man && f.canopy > 0.5) openFirst = true;
+    tick();
+    if (!f.pilot && s.crew.includes(man) && man.y < spot.floor - 2) sawOnSide = true;
+  }
+  ok(openFirst && sawOnSide, 'the canopy open first, then down her side');
+  ok(!f.pilot && s.crew.includes(man) && !man._inFighter && Math.abs(man.y - spot.floor) < 1 && f.canopy === 0 && !man._climbing, 'on the deck, the canopy shut, his legs his own again');
+  ok(/climb in or out of her/.test(Fighters.order(s, sys, 'out').message) || !Fighters.order(s, sys, 'out').ok, 'OUT with nobody in her: refused');
+  /* theirs: in at once, the canopy shuts after him */
+  {
+    const t = new Ship('enemy_geb', false, 0, 0); t._allocateDefaultPower();
+    const hs = Fighters.hangars(t)[0], g = Fighters.of(hs), c = sb.makeEnemyCrew(1)[0]; t.addCrew(c);
+    Fighters.board(t, g, c);
+    ok(g.pilot === c && g.canopy === 1, 'their pilot in at once — and the canopy shuts after him');
+    ok(/liftTo\(go && !\(f\.canopy > 0\) \? 1 : 0\);/.test(read('js/fighters.js')), 'their lift too waits for it');
+  }
+  /* a fight that ends under a climbing man */
+  ok(/if \(this\._climbing && \(this\._climbTick = \(this\._climbTick \?\? 0\) \+ 1\) < 90\) break;/.test(read('js/crew.js')), 'a man left climbing gets his legs back by himself');
+  ok(/const sl = -\(f\?\.canopy \?\? 0\) \* FIGHTER\.CANOPY_SLIDE \* \(hb - ha\);/.test(read('js/fighters.js')), 'drawn: the glass slides back over her roof');
+  ok(/const GAME_VERSION = '0\.270';/.test(read('js/game.js')), 'version 0.270');
 })();
 
 // ============================================================

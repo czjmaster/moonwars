@@ -92,6 +92,12 @@ const FIGHTER = {
   SHOT: { label: 'Fighter laser', type: 'laser', damage: 1, shield_damage: 1, shieldDamage: 1, hull_damage: 1,
           moduleDamage: 1, crewDamage: [6, 14], shots: 1, projectileSpeed: 420, fireChance: 0.03, breachChance: 0 },
   POSTS: [20, 20],         // u in from each end of the platform (jj: „trochę obok brzegów")
+  /* THE CANOPY OPENS FOR HIM (update270, jj 27.11: „podchodzi do kokpitu, szybka kokpitu odsuwa się do tyłu, wchodzi,
+     szybka się zasuwa — i odwrotnie przy wysiadaniu") */
+  CANOPY_TIME: 0.4,        // s to slide it all the way back (or shut)
+  CANOPY_SLIDE: 0.8,       // how far back it slides, in canopies
+  CLIMB_TIME: 0.45,        // s up the side into the seat (or down out of it)
+  HEAD_UP: 19,             // px from a crewman's feet to his head
 };
 
 const Fighters = (() => {
@@ -198,6 +204,7 @@ const Fighters = (() => {
     /* A ROBOT RIDES IN THE SOCKET, NOT AT THE STICK (update263, jj 26.11: „robot nie może prowadzić sam myśliwca"):
        he mends her modules beside her own droid; the stick is a man's. */
     if (c.isRobot) f.bot = c; else f.pilot = c;
+    if (!c.isRobot && !f.climb) f.canopy = 1;                   // in without the walk (theirs): the canopy shuts after him
   }
   /** Who is in her: the man at the stick and the robot in the socket. */
   function aboard(f) { return [f?.pilot, f?.bot].filter(Boolean); }
@@ -218,6 +225,73 @@ const Fighters = (() => {
     c._waypoints = [];
     ship.addCrew(c, true);
   }
+  /** Where he stands to climb in: on the deck under her cockpit — x, and the floor he walks on. */
+  function cockpitSpot(ship, room, f, G) {
+    const s = onPlatform(ship, G, f.lift), tail = s.x - s.face * FIGHTER.LEN * G.kx / 2;
+    const [ha, hb] = SPANS.mods[3];
+    const x = tail + s.face * (ha + hb) / 2 * G.kx;
+    const floor = ship.floorWalkY ? ship.floorWalkY(room.floor, room.cy) : room.cy;   // the deck (not the console's step)
+    const seat = s.floor - FIGHTER.PILOT_V * G.ky + FIGHTER.HEAD_UP;  // his feet with his head where the pilot's helmet sits
+    return { x: Math.max(room.x + 6, Math.min(room.x + room.w - 6, x)), floor, seat };
+  }
+  /** One step of the canopy toward where it is wanted: open for a man getting in or out, shut otherwise. */
+  function canopyStep(dt, f) {
+    const want = f.climb && (f.climb.phase === 'open' || f.climb.phase === 'climb') ? 1 : 0;
+    const d = dt / FIGHTER.CANOPY_TIME;
+    f.canopy = Math.max(0, Math.min(1, (f.canopy ?? 0) + (want > (f.canopy ?? 0) ? d : -d)));
+  }
+  /** HE CLIMBS IN — OR OUT (update270): walk under the cockpit, the canopy slides back, up into the seat (on the
+   *  roster until he is in it), the canopy shuts; out the other way round: open, down onto the deck, shut. */
+  function climbStep(dt, ship, sys, f, room, G) {
+    const k = f.climb;
+    if (!k) return;
+    const c = k.c, spot = cockpitSpot(ship, room, f, G);
+    const abort = () => { if (c) { c._climbing = false; if (!c._inFighter) { c.y = spot.floor; c._waypoints = []; } } f.climb = null; };
+    if (c) c._climbTick = 0;                                        // the crew's own legs stay off while this runs
+    if (f.state !== 'docked' || f.lift > 0) { abort(); return; }
+    if (k.dir === 'in') {
+      if (!c || c.dead || c.dying || c.state === 'injured' || c.roomId !== room.id && k.phase !== 'close' || f.pilot && f.pilot !== c) { abort(); return; }
+      if (k.phase === 'walk') {
+        if (!c._waypoints?.length && Math.abs(c.x - spot.x) > 3) {
+          if ((k.tries = (k.tries ?? 0) + 1) > 3) { k.phase = 'open'; return; }   // could not get under it: he climbs from where he is
+          c.moveToOnShip(ship, spot.x, spot.floor);
+        }
+        if (!c._waypoints?.length && Math.abs(c.x - spot.x) <= 3) { k.phase = 'open'; c._facing = f.face ?? 1; }
+        return;
+      }
+      if (k.phase === 'open') { c._waypoints = []; if (f.canopy >= 1) { k.phase = 'climb'; k.t = 0; } return; }
+      if (k.phase === 'climb') {
+        k.t += dt; c._waypoints = [];
+        const p = Math.min(1, k.t / FIGHTER.CLIMB_TIME);
+        c.x = spot.x; c.y = spot.floor + (spot.seat - spot.floor) * p;
+        if (p >= 1) { c._climbing = false; c.y = spot.floor; board(ship, f, c); k.phase = 'close'; }
+        return;
+      }
+      if (k.phase === 'close' && f.canopy <= 0) f.climb = null;
+      return;
+    }
+    /* out */
+    if (k.phase === 'open') { if (f.canopy >= 1) { k.phase = 'climb'; k.t = 0; } return; }
+    if (k.phase === 'climb') {
+      if (!k.c) {                                                   // the first frame down: out of the seat, onto her side
+        const p = f.pilot; f.pilot = null;
+        if (!p) { k.phase = 'close'; return; }
+        putBack(ship, sys, p); k.c = p; p._climbing = true; p.x = spot.x; p._facing = -(f.face ?? 1);
+      }
+      k.t += dt;
+      const q = Math.min(1, k.t / FIGHTER.CLIMB_TIME), m = k.c;
+      m.x = spot.x; m.y = spot.seat + (spot.floor - spot.seat) * q; m._waypoints = [];
+      if (q >= 1) { m._climbing = false; m.y = spot.floor; k.phase = 'close'; }
+      return;
+    }
+    if (k.phase === 'close' && f.canopy <= 0) f.climb = null;
+  }
+  /** Out of her by the canopy (OUT on the platform): the robot at once, the man down her side. */
+  function climbOut(ship, sys, f) {
+    if (f.bot) { const b = f.bot; f.bot = null; putBack(ship, sys, b); }
+    if (f.pilot) f.climb = { dir: 'out', phase: 'open', c: null, t: 0 };
+  }
+
   /** Everyone of this ship's who is out in a fighter or waiting to be picked up (for the save). */
   function crewAway(ship) {
     const out = [];
@@ -366,6 +440,7 @@ const Fighters = (() => {
     if (!room) return;
     const G = geom(ship, room);
     f._G = G;
+    canopyStep(dt, f);
     if (ours(ship)) return stepOurs(dt, ship, foe, sys, fighting, combat, f, G);
     /* theirs fly the Mk of their bay */
     if (!ship.isPlayer) sys._fighterMk = tierOf(sys);
@@ -385,7 +460,7 @@ const Fighters = (() => {
         const go = !why && f.hp >= hullMax(f) * FIGHTER.GO_AT;
         if (go && !f.pilot) { const c = consoleMan(ship, sys); if (c && !c.isRobot) board(ship, f, c); }   // a robot does not fly her (update263)
         if (!f.pilot) { liftTo(0); break; }
-        liftTo(go ? 1 : 0);
+        liftTo(go && !(f.canopy > 0) ? 1 : 0);                     // the canopy shut first (update270)
         if (!go && f.lift <= 0) { disembark(ship, sys, f); break; }
         if (go && f.lift >= 1) {                                   // down under the keel: she flies off
           const s = onPlatform(ship, G, 1);
@@ -471,9 +546,10 @@ const Fighters = (() => {
       case 'docked': {
         if (!sys.isDisabled()) mend(dt, f);
         if (f.lift <= 0) boardWaiting(ship, sys, f);                // the stick or the socket (update263)
+        climbStep(dt, ship, sys, f, roomOf(ship, sys), G);
         if (f.pilot && !pilotOk(f.pilot) && f.lift <= 0) { disembark(ship, sys, f); f.order = 'hold'; }
         if (f.order === 'launch' && !fightOn) f.order = 'hold';
-        const go = f.order === 'launch' && !launchWhy(ship, sys, f, fightOn);
+        const go = f.order === 'launch' && !launchWhy(ship, sys, f, fightOn) && !f.climb && !(f.canopy > 0);   // the canopy shut first (update270)
         liftTo(go ? 1 : 0);
         if (go && f.lift >= 1) {
           const s = onPlatform(ship, G, 1);
@@ -538,6 +614,14 @@ const Fighters = (() => {
     if (c.isRobot ? f.bot : f.pilot) { c._boardFighter = null; return; }          // that seat is taken (update263)
     if (!pilotOk(c) || c.isPet || (c.homeRoomId != null && c.homeRoomId !== sys.roomId)) { c._boardFighter = null; return; }
     if (c.roomId !== sys.roomId || (c._waypoints?.length ?? 0) > 0) return;
+    if (!c.isRobot) {                                              // a man walks under her cockpit and climbs in (update270)
+      if (f.climb) return;
+      c._boardFighter = null; c.homeRoomId = sys.roomId; c._climbing = true;
+      if (typeof TASK !== 'undefined') c.task = TASK.IDLE;
+      f.climb = { dir: 'in', phase: 'walk', c, t: 0 };
+      if (typeof UI !== 'undefined') UI.notify?.(`${c.name} climbs into the cockpit — LAUNCH on the hangar's power bar.`, 'info');
+      return;
+    }
     c._boardFighter = null;
     board(ship, f, c);
     c.homeRoomId = sys.roomId;
@@ -551,7 +635,8 @@ const Fighters = (() => {
     if (act === 'out') {
       if (f.state !== 'docked' || f.lift > 0) return { ok: false, message: 'She is not on her platform.' };
       if (!aboard(f).length) return { ok: false, message: 'Nobody is in her.' };
-      disembark(ship, sys, f); f.order = 'hold';
+      if (f.climb) return { ok: false, message: 'Somebody is climbing in or out of her.' };
+      climbOut(ship, sys, f); f.order = 'hold';
       return { ok: true, message: 'Out of her, onto the deck.' };
     }
     if (act === 'launch') {
@@ -964,8 +1049,10 @@ const Fighters = (() => {
     const pilot = f?.pilot ?? null;
     if (pilot) drawPilot(ctx, pilot, X(ha + 12), Y(FIGHTER.PILOT_V), 13 * Math.min(kx, ky), face);
     ctx.fillStyle = '#4a5260'; ctx.fillRect(...R(hb - 8, hb - 2, B.FLOOR + 8, B.FLOOR + 10));         // the stick and the board
-    poly([[ha - 1, B.ROOF - 0.5], [ha + 5, B.TOP], [hb - 6, B.TOP], [hb + 6, B.ROOF - 3], [hb, B.CEIL - 6], [ha + 2, B.CEIL - 6]], glass);
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.beginPath(); ctx.moveTo(X(ha + 7), Y(B.TOP - 1)); ctx.lineTo(X(hb - 7), Y(B.TOP - 1)); ctx.stroke();
+    /* THE CANOPY SLIDES BACK (update270): `f.canopy` 0 shut … 1 open, over her roof toward the tail */
+    const sl = -(f?.canopy ?? 0) * FIGHTER.CANOPY_SLIDE * (hb - ha);
+    poly([[ha - 1 + sl, B.ROOF - 0.5], [ha + 5 + sl, B.TOP], [hb - 6 + sl, B.TOP], [hb + 6 + sl, B.ROOF - 3], [hb + sl, B.CEIL - 6], [ha + 2 + sl, B.CEIL - 6]], glass);
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.beginPath(); ctx.moveTo(X(ha + 7 + sl), Y(B.TOP - 1)); ctx.lineTo(X(hb - 7 + sl), Y(B.TOP - 1)); ctx.stroke();
     ctx.strokeStyle = '#11141a';
     /* the droid: on his socket his head over her roof; on his rail down in a module */
     drawDroid(ctx, f?.droid ?? { u: SOCKET, hp: FIGHTER.DROID_HP }, X, Y, kx, ky, face);
@@ -1104,7 +1191,7 @@ const Fighters = (() => {
 
   return { of, hangars, refusal, fireEvery, geom, platformY, update, step, settle, drawInRoom, drawBelow, drawAir, drawFighter, status,
            shootDown, modRects, airRects, target, targetAt, targetLive, aimFor, track, receiveHit, hitModule, dodge, crewAway,
-           board, disembark, refit, levelOf, SPANS, SOCKET,
+           board, disembark, climbOut, cockpitSpot, refit, levelOf, SPANS, SOCKET,
            tierOf, markOf, poweredTier, setMark, isLost, restore, saveOf, order, buttons, buttonAt, boardAt, away, abandon, idle,
            liftWhy, launchWhy, AUTO, aboard, iconAct, boardWhy };
 })();
