@@ -6331,7 +6331,7 @@ section('109. Moon rats come aboard a full hold');
   const grid = (cells, food = 0) => {
     const g = new CargoGrid(6, 4);
     for (let i = 0; i < cells; i++) g.add('data_core');
-    for (let i = 0; i < food; i++) g.add('ration_pack');
+    for (let i = 0; i < food; i++) g.add('protein_paste');      // one cell of food (the ration pack is two since update271)
     return g;
   };
   const empty = new CargoGrid(6, 4);
@@ -9521,7 +9521,7 @@ section('152. SPLIT takes a pile apart');
   {
     const S = cargoScreen(sb, { cols: 2, rows: 1 });
     const drum = S.hold.add('he3_ore', null, 10);
-    while (S.hold.add('ration_pack')) { /* fill every last cell (a one-cell thing: the medkit is 2×2 since update208) */ }
+    while (S.hold.add('protein_paste')) { /* fill every last cell (a one-cell thing: the medkit is 2×2 since update208, the ration pack 2×1 since 271) */ }
     ok(S.hold.usedCells() === S.hold.capacity, 'the hold is packed solid');
     LootScreen.openHold(S.hold, {});
     S.draw();
@@ -12285,6 +12285,7 @@ section('175. A gun with nowhere to go stays bolted on');
   const g = Base.warehouseGrid();
   let guard = 0;
   while (g.add('gun_crate', 'laser_mk1') && guard++ < 200) { /* pack it out */ }
+  while (g.add('data_core') && guard++ < 400) { /* and every odd cell between (update271: the ration crates leave gaps) */ }
   Base.commitWarehouse(g);
 
   const armouryBefore = Base.armoury().length;
@@ -15817,10 +15818,12 @@ section('224. Four rations, and the difference is cells');
   /* THE DIFFERENCE IS THE HOLD, not the price per point — that is the
      whole design. A field meal feeds 60% better and costs a second
      cell of a hold you were going to put salvage in. */
-  ok(new CargoItem('field_meal').w * new CargoItem('field_meal').h === 2,
-     'a field meal takes two cells');
-  ['protein_paste', 'ration_pack', 'green_ration'].forEach(k =>
-    ok(new CargoItem(k).w * new CargoItem(k).h === 1, `${k} takes one`));
+  /* update271 (jj 27.11): the crate of two takes two cells, the carrier of three takes three */
+  ok(new CargoItem('field_meal').w === 3 && new CargoItem('field_meal').h === 1 && CARGO_ITEMS.field_meal.stackMax === 3,
+     'a field meal: three cells in a row, three to a carrier');
+  ['ration_pack', 'green_ration'].forEach(k =>
+    ok(new CargoItem(k).w === 2 && new CargoItem(k).h === 1 && CARGO_ITEMS[k].stackMax === 2, `${k}: two cells in a row, two to a crate`));
+  ok(new CargoItem('protein_paste').w * new CargoItem('protein_paste').h === 1, 'protein_paste takes one');
 
   ok(CARGO_ITEMS.green_ration.unitValue > CARGO_ITEMS.ration_pack.unitValue,
      'greens cost more than the standard pack');
@@ -23467,7 +23470,7 @@ section('269. Balance after playing: air, medkits, lasers, fire, meals, Terra, a
     ok(Save.getRun().scrap === 1000 - st.medkitCost(2), 'and cost what the card says');
     const full = new Ship('frigate', true, 0, 0);
     full.cargo = new CargoGrid(1, 1);
-    ok(!!full.cargo.add('ration_pack'), 'test setup: the one cell is really taken');
+    ok(!!full.cargo.add('protein_paste'), 'test setup: the one cell is really taken');
     const cc = Save.getRun().scrap;
     const r2 = st.buyMedkits(1, Save.getRun(), full);
     ok(!r2.ok && Save.getRun().scrap === cc, 'a full hold is not charged for a kit it cannot take');
@@ -40356,7 +40359,7 @@ section('371. Where records come from: wrecks and wreckage (rarely), the boss (a
     ok(said.some(m => /captain kept it\. A record for the book/.test(m)), 'and says so');
     // a full hold: it waits, and the hold opens for it
     BossManager.start(0, 850, 120); BossManager._active = false;
-    while (player.cargo.autoPlace(new CargoItem('ration_pack'))) { /* fill */ }
+    while (player.cargo.autoPlace(new CargoItem('protein_paste'))) { /* fill */ }
     const said2 = quietly(() => T._payBossChip());
     ok(said2.some(m => /no room in the hold, make some/.test(m)) && recs(player.cargo).length === 1, 'a full hold: not in the hold yet');
     ok(T.queuedRecords?.length === 1 && /^record_/.test(T.queuedRecords[0]), `and nothing lost — it waits (${T.queuedRecords})`);
@@ -43767,7 +43770,7 @@ section('406. jj 9.11 (220): no buttons in the header, the way round in the card
     Save.reset(); Save.load();
     quiet(() => BaseScreen.open()); BaseScreen._set({ tab: 'SUPPLY', screen: null, town: false });
     const g = Base.warehouseGrid(); g.clear();
-    const a = g.add('ration_pack', null, 2), b = g.add('ration_pack', null, 2);
+    const a = g.add('ration_pack', null, 1), b = g.add('ration_pack', null, 1);   // update271: a crate is two
     const v1 = new sb.CargoItem('air_med'), v2 = new sb.CargoItem('air_med'); v1.qty = Math.floor(v1.stackMax / 3); v2.qty = Math.floor(v2.stackMax / 3);
     g.autoPlace(v1); g.autoPlace(v2);
     Base.commitWarehouse(g);
@@ -43776,7 +43779,7 @@ section('406. jj 9.11 (220): no buttons in the header, the way round in the card
     const r = BaseScreen.supplyCombine();
     const g2 = Base.warehouseGrid();
     const rations = g2.items.filter(i => i.defKey === 'ration_pack'), vessels = g2.items.filter(i => i.isVessel);
-    ok(r.ok && rations.length === 1 && rations[0].qty === 4, `the rations in one box (${rations.map(i => i.qty)})`);
+    ok(r.ok && rations.length === 1 && rations[0].qty === 2, `the rations in one box (${rations.map(i => i.qty)})`);
     ok(vessels.length === 1 && vessels[0].qty === air0, `the air poured into one bottle, not a litre lost (${vessels.map(i => i.qty)} of ${air0})`);
     ok(BaseScreen.supplyCombinable() === 0 && !BaseScreen.supplyCombine().ok, 'then nothing left to combine');
     quiet(() => BaseScreen.draw(ctx));
@@ -48063,7 +48066,7 @@ section('452. jj 26.11 (266): the Phoenix hulls\' engine pods whole again (no ho
       ok(tubes && tubes.map(t => t.n).join() === 'gear_aquarius_tube1,gear_aquarius_tube2,gear_aquarius_tube3', 'and its piston of three drawn tubes');
     } finally { A.has = realHas; A.get = realGet; A.source = realSource; }
   }
-  ok(/const GAME_VERSION = '0\.(26[6789]|270)';/.test(read('js/game.js')) && /^update26[67]$/.test(JSON.parse(read('art/manifest.json')).version), 'version 0.266 (or later), the art\'s update266 (or later)');
+  ok((+((read('js/game.js')).match(/const GAME_VERSION = '([\d.]+)';/) ?? [0, 0])[1] >= 0.266) && /^update2(6[6-9]|[7-9]\d)$/.test(JSON.parse(read('art/manifest.json')).version), 'version 0.266 (or later), the art\'s update266 (or later)');
 })();
 
 // ============================================================
@@ -48080,7 +48083,7 @@ section('453. jj 26.11 (267): Aquarius\'s own doors, airlock and piston from GPT
   const parts = ['head', 'sill', 'leaf_top', 'leaf_bot'];
   const names = [...parts.map(p => `door_${p}_aquarius`), ...parts.map(p => `door_air_${p}_aquarius`), ...[1, 2, 3].map(i => `gear_aquarius_tube${i}`)];
   ok(names.every(n => man.sprites.includes(n) && fs.existsSync(path.join(ROOT7, 'art', n + '.png'))), `the eleven in art/ and in the manifest (${names.filter(n => !man.sprites.includes(n))})`);
-  ok(man.version === 'update267' && /const GAME_VERSION = '0\.(26[789]|270)';/.test(read('js/game.js')), 'version 0.267 (or later), the art\'s update267');
+  ok(/^update2(6[7-9]|[7-9]\d)$/.test(man.version) && (+((read('js/game.js')).match(/const GAME_VERSION = '([\d.]+)';/) ?? [0, 0])[1] >= 0.267), 'version 0.267 (or later), the art\'s update267');
   ok([...parts.map(p => [`door_${p}_aquarius`, `door_${p}_terra`]), ...parts.map(p => [`door_air_${p}_aquarius`, `door_air_${p}_terra`])]
      .every(([a, t]) => { const A = art(a), T = art(t); return A.w === T.w && A.h === T.h; }), 'each the size of Terra\'s same part');
   const T1 = art('gear_aquarius_tube1'), T3 = art('gear_aquarius_tube3');
@@ -48198,7 +48201,7 @@ section('454. jj 27.11 (268): no jump to her picture\'s pad when the gear is up;
   ok(/function _leaveRunaway\(c, opts\) \{[\s\S]{0,200}if \(opts\.aboardLost && !c\.dead\) c\.killOutright\(opts\.aboardLost\);/.test(GM), '(he goes down with their hull)');
   /* Geb's top drive */
   ok(/flames: \[\[166, 105\.8, -1, 0, 42, 32\]/.test(SH), 'Geb\'s top drive burns as long as the others');
-  ok(/const GAME_VERSION = '0\.(26[89]|270)';/.test(GM), 'version 0.268 (or later)');
+  ok((+((GM).match(/const GAME_VERSION = '([\d.]+)';/) ?? [0, 0])[1] >= 0.268), 'version 0.268 (or later)');
 })();
 
 // ============================================================
@@ -48313,7 +48316,7 @@ section('455. jj 27.11 (269): their crew mends like a crew again — the man in 
     ai();
     ok(c.task === TASK.FIRE && c._resumeRepair == null, `the fire is in the room he was going to mend: he takes it, and the job is still his room (${c.task})`);
   }
-  ok(/const GAME_VERSION = '0\.2(69|70)';/.test(read('js/game.js')), 'version 0.269 (or later)');
+  ok((+((read('js/game.js')).match(/const GAME_VERSION = '([\d.]+)';/) ?? [0, 0])[1] >= 0.269), 'version 0.269 (or later)');
 })();
 
 // ============================================================
@@ -48375,7 +48378,52 @@ section('456. jj 27.11 (270): into the fighter and out of her — he walks under
   /* a fight that ends under a climbing man */
   ok(/if \(this\._climbing && \(this\._climbTick = \(this\._climbTick \?\? 0\) \+ 1\) < 90\) break;/.test(read('js/crew.js')), 'a man left climbing gets his legs back by himself');
   ok(/const sl = -\(f\?\.canopy \?\? 0\) \* FIGHTER\.CANOPY_SLIDE \* \(hb - ha\);/.test(read('js/fighters.js')), 'drawn: the glass slides back over her roof');
-  ok(/const GAME_VERSION = '0\.270';/.test(read('js/game.js')), 'version 0.270');
+  ok((+((read('js/game.js')).match(/const GAME_VERSION = '([\d.]+)';/) ?? [0, 0])[1] >= 0.270), 'version 0.270 (or later)');
+})();
+
+// ============================================================
+section('457. jj 27.11 (271): the food in crates — a ration pack and a green ration two cells in a row, two to a crate; a field meal three cells, three to a carrier, seen from the side; the hold shows how many are in it; an old save keeps every meal');
+// ============================================================
+(function testUpdate271() {
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const sb = loadEngine();
+  const { CARGO_ITEMS, CargoGrid, ITEM_BOX } = sb;
+  const want = { ration_pack: [2, 2, 'ration'], green_ration: [2, 2, 'green'], field_meal: [3, 3, 'field_meal'] };
+  const man = JSON.parse(read('art/manifest.json'));
+  Object.entries(want).forEach(([k, [w, n, art]]) => {
+    const d = CARGO_ITEMS[k], b = ITEM_BOX[k];
+    ok(d.w === w && d.h === 1 && d.stackMax === n, `${k}: ${w} cells in a row, ${n} to a box (${d.w}×${d.h}, ${d.stackMax})`);
+    ok(!!b && b.box === `item_${art}_case` && b.one === `item_${art}_one` && b.nests.length === n, `${k}: its case and its piece, a nest for each (${b?.nests.length})`);
+    ok(b.nests.every(([x, y, nw, nh]) => x >= 0 && y >= 0 && nw > 0.2 && nh > 0.5 && x + nw <= 1.001 && y + nh <= 1.001)
+       && b.nests.every((r, i) => i === 0 || r[0] > b.nests[i - 1][0] + b.nests[i - 1][2] - 0.01), `${k}: the nests inside the case, left to right, apart`);
+    [b.box, b.one].forEach(nm => ok(fs.existsSync(path.join(__dirname, '..', 'art', nm + '.png')) && man.sprites.includes(nm), `${nm}.png is there, and listed`));
+  });
+  ok(CARGO_ITEMS.protein_paste.w === 1 && CARGO_ITEMS.protein_paste.stackMax === 5, 'protein paste as it was (one cell, five)');
+  ok(/Two sealed meals in a crate/.test(CARGO_ITEMS.ration_pack.desc) && /Three self-heating meals/.test(CARGO_ITEMS.field_meal.desc), 'the words say what is in the box');
+  /* an old save: five rations in one box, four field meals */
+  {
+    const old = { cols: 6, rows: 4, items: [{ defKey: 'ration_pack', x: 0, y: 0, qty: 5 }, { defKey: 'field_meal', x: 0, y: 1, qty: 4 }] };
+    const g = CargoGrid.deserialise(old);
+    const r = g.items.filter(i => i.defKey === 'ration_pack'), f = g.items.filter(i => i.defKey === 'field_meal');
+    ok(r.reduce((t, i) => t + i.qty, 0) === 5 && r.length === 3 && r.every(i => i.qty <= 2), `five old rations: three crates, not a meal lost (${r.map(i => i.qty)})`);
+    ok(f.reduce((t, i) => t + i.qty, 0) === 4 && f.length === 2, `four old field meals: two carriers (${f.map(i => i.qty)})`);
+    ok(g.items.every((a, i) => g.items.every((b, j) => i === j || a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y)), 'and nothing laid over anything');
+  }
+  /* the hold draws the case with as many pieces as are in it */
+  {
+    const calls = []; const ctx = { drawImage: (...a) => calls.push(a) };
+    const one = { width: 240, height: 211 };
+    const src = sb.Assets.source, get = sb.Assets.get;
+    sb.Assets.source = () => 'file'; sb.Assets.get = () => one;
+    const n = sb.Renderer._fillBox(ctx, ITEM_BOX.field_meal, 2, 300, 100);
+    sb.Assets.source = src; sb.Assets.get = get;
+    ok(n === 2 && calls.length === 2 && calls[1][1] > calls[0][1], `two meals in the carrier: two pictures, left to right (${calls.length})`);
+  }
+  ok(/def\.stackMax|\bitemBox\(it\.defKey\)/.test(read('js/lootscreen.js')), 'the hold asks itemBox for the case (update212)');
+  ok(fs.existsSync(path.join(__dirname, '..', 'tools', 'cut_box.py')), 'tools/cut_box.py: a case and a piece from GPT, and the nests found in the picture');
+  ok(man.version === 'update271', 'the art\'s update271');
+  ok(/const GAME_VERSION = '0\.271';/.test(read('js/game.js')), 'version 0.271');
 })();
 
 // ============================================================

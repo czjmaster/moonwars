@@ -1375,20 +1375,20 @@ const BREAKS = [
   {
     name: '#66 the standard ration quietly changes value',
     file: F('cargo.js'),
-    from: "    stackMax: 5, unitValue: 8, hunger: 50, meat: true,",
-    to:   "    stackMax: 5, unitValue: 8, hunger: 25, meat: true,",
+    from: "    stackMax: 2, unitValue: 8, hunger: 50, meat: true,",
+    to:   "    stackMax: 2, unitValue: 8, hunger: 25, meat: true,",
   },
   {
     name: '#66 a field meal shrinks to one cell',
     file: F('cargo.js'),
-    from: "    w: 2, h: 1, col: '#c08f5a', kind: 'food', tag: 'food',",
+    from: "    w: 3, h: 1, col: '#c08f5a', kind: 'food', tag: 'food',",
     to:   "    w: 1, h: 1, col: '#c08f5a', kind: 'food', tag: 'food',",
   },
   {
     name: '#66 greens are meat after all',
     file: F('cargo.js'),
-    from: "    stackMax: 5, unitValue: 12, hunger: 50, meat: false,",
-    to:   "    stackMax: 5, unitValue: 12, hunger: 50, meat: true,",
+    from: "    stackMax: 2, unitValue: 12, hunger: 50, meat: false,",
+    to:   "    stackMax: 2, unitValue: 12, hunger: 50, meat: true,",
   },
   {
     name: '#66 every meal feeds the same again (the old flat table)',
@@ -19654,6 +19654,17 @@ const BREAKS = [
     from: "        if (this._climbing && (this._climbTick = (this._climbTick ?? 0) + 1) < 90) break;\n", to: "" },
   { name: "#270 their canopy left as it was", file: F('fighters.js'),
     from: "    if (!c.isRobot && !f.climb) f.canopy = 1;", to: "    void 0;" },
+  /* ── update271: jj 27.11 (B14/B15) — the food in crates ── */
+  { name: "#271 a ration pack one cell again", file: F('cargo.js'),
+    from: "    w: 2, h: 1, col: '#8fa8c0', kind: 'food', tag: 'food',", to: "    w: 1, h: 1, col: '#8fa8c0', kind: 'food', tag: 'food'," },
+  { name: "#271 five to a ration crate", file: F('cargo.js'),
+    from: "    stackMax: 2, unitValue: 8, hunger: 50, meat: true,", to: "    stackMax: 5, unitValue: 8, hunger: 50, meat: true," },
+  { name: "#271 four to a field meal carrier", file: F('cargo.js'),
+    from: "    stackMax: 3, unitValue: 16, hunger: 80, meat: true,", to: "    stackMax: 4, unitValue: 16, hunger: 80, meat: true," },
+  { name: "#271 the green crate has no picture", file: F('cargo.js'),
+    from: "  green_ration: { box: 'item_green_case', one: 'item_green_one',", to: "  green_ration_x: { box: 'item_green_case', one: 'item_green_one'," },
+  { name: "#271 the field meal carrier a bay short", file: F('cargo.js'),
+    from: "    nests: [[0.014, 0.136, 0.309, 0.773], [0.336, 0.136, 0.324, 0.773], [0.673, 0.136, 0.31, 0.773]] },", to: "    nests: [[0.014, 0.136, 0.309, 0.773], [0.336, 0.136, 0.324, 0.773]] }," },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

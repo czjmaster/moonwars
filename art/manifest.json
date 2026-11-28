@@ -44,7 +44,7 @@
     "\"version\": goes on every file's address (art/x.png?v=<version>), so a browser that kept",
     "an older picture fetches the new one. Bump it with every update that changes art (update241)."
   ],
-  "version": "update267",
+  "version": "update271",
   "sprites": [
     "icon_reactor",
     "icon_shields",
@@ -477,7 +477,13 @@
     "door_air_leaf_bot_aquarius",
     "gear_aquarius_tube1",
     "gear_aquarius_tube2",
-    "gear_aquarius_tube3"
+    "gear_aquarius_tube3",
+    "item_ration_case",
+    "item_ration_one",
+    "item_green_case",
+    "item_green_one",
+    "item_field_meal_case",
+    "item_field_meal_one"
   ],
   "webp": [
     "bg_combat_far",

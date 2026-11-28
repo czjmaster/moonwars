@@ -204,12 +204,14 @@ const CARGO_ITEMS = {
    * takes two. Protein Paste is cheap and sends you back to a port
    * sooner. Green Ration costs more and EVERYBODY eats it.
    */
+  /* TWO CELLS, TWO MEALS (update271, jj 27.11: „racje żywnościowe — 2 kratki poziomo… skrzynka z racjami mieści max 2
+     racje"): a crate with two bays, a pack in each (ITEM_BOX) — the hold shows how many are left. */
   ration_pack: {
     label: 'Ration Pack', short: 'RTN',
     // tag 'food' — and every rat between here and the Belt knows it.
-    w: 1, h: 1, col: '#8fa8c0', kind: 'food', tag: 'food',
-    stackMax: 5, unitValue: 8, hunger: 50, meat: true,
-    desc: 'Five sealed meals. Your people tear one open when they get '
+    w: 2, h: 1, col: '#8fa8c0', kind: 'food', tag: 'food',
+    stackMax: 2, unitValue: 8, hunger: 50, meat: true,
+    desc: 'Two sealed meals in a crate. Your people tear one open when they get '
         + 'hungry — and so does the cat. Keep it stowed: a hold that '
         + 'smells of food does not stay empty.',
   },
@@ -220,17 +222,18 @@ const CARGO_ITEMS = {
     desc: 'Reclaimed protein in a tube. Half a meal for half the money, '
         + 'which means twice as many trips to a port. Nobody enjoys it.',
   },
+  /* THREE CELLS, THREE MEALS, SEEN FROM THE SIDE (update271, jj 27.11: „field meal — 3 kratki, max 3 jedzenia w pudełku") */
   field_meal: {
     label: 'Field Meal', short: 'FLD',
-    w: 2, h: 1, col: '#c08f5a', kind: 'food', tag: 'food',
-    stackMax: 4, unitValue: 16, hunger: 80, meat: true,
-    desc: 'A proper hot tray. Fills a man right up — and takes two cells '
-        + 'of a hold you were going to put salvage in.',
+    w: 3, h: 1, col: '#c08f5a', kind: 'food', tag: 'food',
+    stackMax: 3, unitValue: 16, hunger: 80, meat: true,
+    desc: 'Three self-heating meals in a carrier. Fills a man right up — and '
+        + 'takes three cells of a hold you were going to put salvage in.',
   },
   green_ration: {
     label: 'Green Ration', short: 'GRN',
-    w: 1, h: 1, col: '#5fbf7a', kind: 'food', tag: 'food',
-    stackMax: 5, unitValue: 12, hunger: 50, meat: false,
+    w: 2, h: 1, col: '#5fbf7a', kind: 'food', tag: 'food',
+    stackMax: 2, unitValue: 12, hunger: 50, meat: false,           // two cells, two meals (update271)
     desc: 'Vat-grown, no animal in it. Dearer than the standard pack, '
         + 'and the one box on the shelf that every mouth aboard will '
         + 'touch — except the cat, who has opinions.',
@@ -939,6 +942,13 @@ const ITEM_BOX = {
   medkit:       { box: 'item_medkit_case', one: 'item_medkit_one',
     nests: [[0.114, 0.298, 0.376, 0.218], [0.512, 0.298, 0.376, 0.218],
             [0.114, 0.546, 0.376, 0.218], [0.512, 0.546, 0.376, 0.218]] },
+  /* the food (update271, GPT v27 — the bays found by tools/cut_box.py) */
+  ration_pack:  { box: 'item_ration_case', one: 'item_ration_one',
+    nests: [[0.039, 0.147, 0.427, 0.747], [0.533, 0.147, 0.423, 0.747]] },
+  green_ration: { box: 'item_green_case', one: 'item_green_one',
+    nests: [[0.042, 0.147, 0.414, 0.753], [0.542, 0.147, 0.414, 0.753]] },
+  field_meal:   { box: 'item_field_meal_case', one: 'item_field_meal_one',
+    nests: [[0.014, 0.136, 0.309, 0.773], [0.336, 0.136, 0.324, 0.773], [0.673, 0.136, 0.31, 0.773]] },
 };
 /** The case and its pieces for a stack, or null (no art: the old picture). */
 function itemBox(defKey) {
