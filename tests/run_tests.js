@@ -44584,7 +44584,7 @@ section('416. Fires come first (230, jj 12.11): a drone puts them out too, the e
     const ai = src('combat.js');
     ok(ai.indexOf('FIRE FIRST, BEFORE ANY REPAIR') < ai.indexOf('const repairOrder = '), 'fires are dispatched before modules');
     ok(/pickBest\(fire\.x, fire\.y, 'firefight', true, true\)/.test(ai), 'a fire may take the last hand aboard');
-    ok(/if \(!spare && \(!fixing \|\| force\)\) pool = idle\.slice\(\);/.test(ai), 'a man already repairing no longer blocks it');
+    ok(/if \(!spare && \(!fixing \|\| force \|\| vital\)\) pool = idle\.slice\(\);/.test(ai), 'a man already repairing no longer blocks it');
     /* one hand aboard, one broken module and one fire: he goes to the fire */
     const player = new Ship('frigate', true, 100, 120);
     const foe = new Ship('enemy_gunship', false, 600, 120);
@@ -48057,7 +48057,7 @@ section('452. jj 26.11 (266): the Phoenix hulls\' engine pods whole again (no ho
       ok(tubes && tubes.map(t => t.n).join() === 'gear_aquarius_tube1,gear_aquarius_tube2,gear_aquarius_tube3', 'and its piston of three drawn tubes');
     } finally { A.has = realHas; A.get = realGet; A.source = realSource; }
   }
-  ok(/const GAME_VERSION = '0\.26[678]';/.test(read('js/game.js')) && /^update26[67]$/.test(JSON.parse(read('art/manifest.json')).version), 'version 0.266 (or later), the art\'s update266 (or later)');
+  ok(/const GAME_VERSION = '0\.26[6789]';/.test(read('js/game.js')) && /^update26[67]$/.test(JSON.parse(read('art/manifest.json')).version), 'version 0.266 (or later), the art\'s update266 (or later)');
 })();
 
 // ============================================================
@@ -48074,7 +48074,7 @@ section('453. jj 26.11 (267): Aquarius\'s own doors, airlock and piston from GPT
   const parts = ['head', 'sill', 'leaf_top', 'leaf_bot'];
   const names = [...parts.map(p => `door_${p}_aquarius`), ...parts.map(p => `door_air_${p}_aquarius`), ...[1, 2, 3].map(i => `gear_aquarius_tube${i}`)];
   ok(names.every(n => man.sprites.includes(n) && fs.existsSync(path.join(ROOT7, 'art', n + '.png'))), `the eleven in art/ and in the manifest (${names.filter(n => !man.sprites.includes(n))})`);
-  ok(man.version === 'update267' && /const GAME_VERSION = '0\.26[78]';/.test(read('js/game.js')), 'version 0.267 (or later), the art\'s update267');
+  ok(man.version === 'update267' && /const GAME_VERSION = '0\.26[789]';/.test(read('js/game.js')), 'version 0.267 (or later), the art\'s update267');
   ok([...parts.map(p => [`door_${p}_aquarius`, `door_${p}_terra`]), ...parts.map(p => [`door_air_${p}_aquarius`, `door_air_${p}_terra`])]
      .every(([a, t]) => { const A = art(a), T = art(t); return A.w === T.w && A.h === T.h; }), 'each the size of Terra\'s same part');
   const T1 = art('gear_aquarius_tube1'), T3 = art('gear_aquarius_tube3');
@@ -48192,7 +48192,122 @@ section('454. jj 27.11 (268): no jump to her picture\'s pad when the gear is up;
   ok(/function _leaveRunaway\(c, opts\) \{[\s\S]{0,200}if \(opts\.aboardLost && !c\.dead\) c\.killOutright\(opts\.aboardLost\);/.test(GM), '(he goes down with their hull)');
   /* Geb's top drive */
   ok(/flames: \[\[166, 105\.8, -1, 0, 42, 32\]/.test(SH), 'Geb\'s top drive burns as long as the others');
-  ok(/const GAME_VERSION = '0\.268';/.test(GM), 'version 0.268');
+  ok(/const GAME_VERSION = '0\.26[89]';/.test(GM), 'version 0.268 (or later)');
+})();
+
+// ============================================================
+section('455. jj 27.11 (269): their crew mends like a crew again — the man in a broken room is put on it, our boarder does not keep them out of the room he wrecks, the shields go before the helm, a busy hand is no spare, the air is urgent when it goes, a fire takes the right man and he goes back to his job');
+// ============================================================
+(function testUpdate269() {
+  const quiet = (fn) => { const log = console.log, warn = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = log; console.warn = warn; } };
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  /* their crew at their posts, the fire and the hull quiet — one hand of theirs is a spare when asked */
+  const setUp = (spare) => {
+    const sb = loadEngine();
+    const { CombatManager, CrewMember, TASK, Ship } = sb;
+    const guns = new Ship('enemy_frigate', false, 0, 0).weapons;
+    const { T, enemy } = quiet(() => makeCombat(sb));
+    enemy.weapons = guns;                                   // the gun is a post only with a gun on it
+    enemy.fires.fires.length = 0;
+    const [a, b, c] = enemy.crew;
+    const post = (m, type) => { const r = enemy.getRoomById(enemy.getSystem(type).roomId); m.homeRoomId = r.id; };
+    post(a, 'piloting'); post(b, 'shields'); post(c, spare ? 'reactor' : 'weapons');
+    quiet(() => enemy.snapToStations());
+    enemy.crew.forEach(m => { m.task = TASK.IDLE; m.taskTarget = null; m._waypoints = []; m.hp = m.maxHp = 1e6; });
+    const ai = () => quiet(() => CombatManager._updateAI(0.05));
+    const gunPost = enemy.weaponRooms.filter((r, i) => enemy.weapons[i]).map(r => r.id);
+    const run = (s) => quiet(() => { for (let i = 0; i < s * 20; i++) T._updateCombat(0.05); });
+    return { sb, T, enemy, CombatManager, CrewMember, TASK, a, b, c, ai, run };
+  };
+  const room = (E, type) => E.getRoomById(E.getSystem(type).roomId);
+
+  /* 1. a man idle in a broken room is put on it at once — not sent across the ship to the next one */
+  {
+    const { enemy, TASK, c, ai, sb } = setUp(true);
+    const eng = room(enemy, 'engines');
+    c.roomId = eng.id; c.x = eng.cx; c.y = enemy.floorWalkY(eng.floor, eng.cy);
+    enemy.getSystem('engines').damageLevel(2); enemy.getSystem('oxygen').damageLevel(1);
+    ai();
+    ok(c.task === TASK.REPAIR && c.taskTarget === eng.id, `the man standing in the engine room mends the engines (${c.task} → ${enemy.getRoomById(c.taskTarget)?.system?.type})`);
+    ok(/if \(inRoom\) \{ inRoom\.assignTask\(TASK\.REPAIR, sys\.roomId\); return; \}/.test(read('js/combat.js')), '(the pass puts him on it, instead of trusting he will start by himself next frame)');
+  }
+  /* 2. our boarder in their oxygen plant does not keep their crew away from it */
+  {
+    const { enemy, TASK, CrewMember, ai, b } = setUp(false);
+    const o2 = room(enemy, 'oxygen');
+    const us = new CrewMember({ isPlayer: true, race: 'aquarius' });
+    us.roomId = o2.id; us.x = o2.cx; us.y = enemy.floorWalkY(o2.floor, o2.cy); us.inRoom = true; enemy.addCrew(us, true); us.hp = us.maxHp = 1e6;
+    enemy.getSystem('oxygen').damageLevel(1);
+    ai();
+    const sent = enemy.crew.filter(m => !m.isPlayer && m.task === TASK.REPAIR && m.taskTarget === o2.id);
+    ok(sent.length === 1, `a hand is sent to the room our man is wrecking (${sent.map(m => m.name)})`);
+    ok(sent[0] === b, `…and it is the shield man, not the pilot or the last gun (${sent[0]?.name} — shields ${b.name})`);
+  }
+  /* 3. no spare: the shields go first, the helm last */
+  {
+    const { enemy, TASK, a, b, ai } = setUp(false);
+    enemy.getSystem('engines').damageLevel(1);          // the engine room is next to the helm
+    ai();
+    const eng = room(enemy, 'engines');
+    ok(b.task === TASK.REPAIR && b.taskTarget === eng.id, `the shield man goes to the engines (${b.task})`);
+    ok(a.task !== TASK.REPAIR, `the pilot stays at the helm (${a.task})`);
+  }
+  /* 4. a spare hand who is busy elsewhere is not a spare hand */
+  {
+    const { enemy, TASK, b, c, ai } = setUp(true);
+    const med = room(enemy, 'reactor');
+    c.task = TASK.FIRE; c.taskTarget = { out: false, x: med.cx, y: med.cy };   // out at something else
+    enemy.getSystem('oxygen').damageLevel(1);
+    ai();
+    const o2 = room(enemy, 'oxygen');
+    ok(b.task === TASK.REPAIR && b.taskTarget === o2.id, `with the spare man busy, the shield man goes (${b.task})`);
+  }
+  /* 5. their air: a dead plant with the air going takes a post even while a man is mending something else */
+  {
+    const { enemy, TASK, a, b, c, ai, sb } = setUp(true);
+    const eng = room(enemy, 'engines');
+    enemy.getSystem('engines').damageLevel(1);
+    c.task = TASK.REPAIR; c.taskTarget = eng.id;
+    const sys = enemy.getSystem('oxygen'); sys.damageLevel(sys.level);
+    enemy.oxygen.averageO2 = () => 0.4;
+    ai();
+    ok(b.task === TASK.REPAIR && b.taskTarget === sys.roomId, `the air going: the shield man to the oxygen plant (${b.task})`);
+    enemy.oxygen.averageO2 = () => 0.95; b.task = TASK.IDLE; b.taskTarget = null;
+    ai();
+    ok(b.task !== TASK.REPAIR, `plenty of air: he stays at his console while another man is mending (${b.task})`);
+    ok(sb.Combat.ENEMY_O2_URGENT === 0.6, 'below 60% air');
+  }
+  /* 6. a fire: the man walking to mend that room takes it; a man about to finish is left alone; and the man pulled off a job goes back to it */
+  {
+    const { enemy, TASK, a, b, c, ai, sb } = setUp(true);
+    const eng = room(enemy, 'engines'), o2 = room(enemy, 'oxygen');
+    [a, b].forEach(m => { m.task = TASK.FIRE; m.taskTarget = { out: false, x: 0, y: 0 }; });   // the posts busy elsewhere
+    enemy.getSystem('oxygen').damageLevel(1);
+    c.roomId = o2.id; c.x = o2.cx; c.y = enemy.floorWalkY(o2.floor, o2.cy); c.task = TASK.REPAIR; c.taskTarget = o2.id;
+    enemy.getSystem('oxygen').repairProgress = 0.95;
+    ok(sb.Combat._jobAlmostDone(enemy, c), 'half a second from the end of the job');
+    enemy.fires.fires.push({ out: false, x: eng.cx, y: eng.cy, roomId: eng.id, suppress() {} });
+    ai();
+    ok(c.task === TASK.REPAIR, `the fire does not take him off a job he is about to finish (${c.task})`);
+    enemy.getSystem('oxygen').repairProgress = 0.1;
+    ai();
+    ok(c.task === TASK.FIRE && c._resumeRepair === o2.id, `with the job far from done the fire takes him — and he remembers it (${c.task}, ${c._resumeRepair})`);
+    enemy.fires.fires[0].out = true; c.task = TASK.IDLE; c.taskTarget = null; c._waypoints = [];
+    ai();
+    ok(c.task === TASK.REPAIR && c.taskTarget === o2.id, `fire out: back to the oxygen plant he left (${c.task})`);
+  }
+  {
+    const { enemy, TASK, a, b, c, ai } = setUp(true);
+    const eng = room(enemy, 'engines');
+    [a, b].forEach(m => { m.task = TASK.FIRE; m.taskTarget = { out: false, x: 0, y: 0 }; });
+    enemy.getSystem('engines').damageLevel(1);
+    c.task = TASK.REPAIR; c.taskTarget = eng.id;                       // on his way to the engines
+    enemy.fires.fires.push({ out: false, x: eng.cx, y: eng.cy, roomId: eng.id, suppress() {} });
+    ai();
+    ok(c.task === TASK.FIRE && c._resumeRepair == null, `the fire is in the room he was going to mend: he takes it, and the job is still his room (${c.task})`);
+  }
+  ok(/const GAME_VERSION = '0\.269';/.test(read('js/game.js')), 'version 0.269');
 })();
 
 // ============================================================

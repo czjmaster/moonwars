@@ -9808,7 +9808,7 @@ const BREAKS = [
   {
     name: "#127 no post ever leaves to repair",
     file: F('combat.js'),
-    from: "        if (!spare && (!fixing || force)) pool = idle.slice();\n      }",
+    from: "        if (!spare && (!fixing || force || vital)) pool = idle.slice();\n      }",
     to: "",
   },
 
@@ -17432,14 +17432,14 @@ const BREAKS = [
   {
     name: "#230 a fire cannot pull a man off a repair",
     file: F("combat.js"),
-    from: "        best = fixers[0] ?? null;",
+    from: "        best = fixers.find(c => !almost(c) || c.taskTarget === fireRoom) ?? null;",
     to:   "        best = null;",
   },
   {
     name: "#230 the enemy will not take the last hand off a repair",
     file: F("combat.js"),
-    from: "      let best = pickBest(fire.x, fire.y, 'firefight', true, true);",
-    to:   "      let best = pickBest(fire.x, fire.y, 'firefight', true);",
+    from: "      if (!best) best = pickBest(fire.x, fire.y, 'firefight', true, true);",
+    to:   "      if (!best) best = pickBest(fire.x, fire.y, 'firefight', true);",
   },
   {
     name: "#230 patching trains a skill of its own again",
@@ -18265,8 +18265,8 @@ const BREAKS = [
   {
     name: "#253 a spare man who cannot get there blocks the last hand",
     file: F('combat.js'),
-    from: "&& !postOf(c) && reach(c, x, y));   // a spare hand",
-    to:   "&& !postOf(c));   // a spare hand",
+    from: "&& !postOf(c) && free(c) && reach(c, x, y));   // a spare hand",
+    to:   "&& !postOf(c) && free(c));   // a spare hand",
   },
   {
     name: "#253 burnt He2 shows units",
@@ -19620,6 +19620,23 @@ const BREAKS = [
     from: "        if (c._escapee) { _leaveRunaway(c, opts); return; }   // update268: he never got off their hull\n", to: "" },
   { name: "#268 Geb's top drive a short flame", file: F('ship.js'),
     from: "    flames: [[166, 105.8, -1, 0, 42, 32],", to: "    flames: [[166, 105.8, -1, 0, 26, 19.8]," },
+  /* ── update269: jj 27.11 (A6) — their crew's repairs ── */
+  { name: "#269 a man in a broken room trusted to start by himself", file: F('combat.js'),
+    from: "      if (inRoom) { inRoom.assignTask(TASK.REPAIR, sys.roomId); return; }", to: "      if (inRoom) return;" },
+  { name: "#269 anybody in the room counts as mending it", file: F('combat.js'),
+    from: "      const inRoom = enemy.roomContested?.(sys.roomId) ? null :", to: "      const inRoom = false ? null :" },
+  { name: "#269 the nearest post goes, the helm too", file: F('combat.js'),
+    from: "        if (pa !== pb) return pa - pb;\n", to: "" },
+  { name: "#269 a busy hand counts as a spare", file: F('combat.js'),
+    from: "&& !postOf(c) && free(c) && reach(c, x, y));   // a spare hand", to: "&& !postOf(c) && reach(c, x, y));   // a spare hand" },
+  { name: "#269 the air never urgent", file: F('combat.js'),
+    from: "(sys.type === 'oxygen' && sys.workingLevels <= 0 && (enemy.oxygen?.averageO2?.() ?? 1) < Combat.ENEMY_O2_URGENT);", to: "false;" },
+  { name: "#269 a fire takes a man off a job he is about to finish", file: F('combat.js'),
+    from: "        best = fixers.find(c => !almost(c) || c.taskTarget === fireRoom) ?? null;", to: "        best = fixers[0] ?? null;" },
+  { name: "#269 the man pulled to a fire forgets his job", file: F('combat.js'),
+    from: "      if (back) {\n        back._resumeRepair = null;", to: "      if (false) {\n        back._resumeRepair = null;" },
+  { name: "#269 the fire passes over the man going to mend its room", file: F('combat.js'),
+    from: "                                             c.task === TASK.REPAIR && c.taskTarget === fireRoom) ?? null;", to: "                                             c.task === TASK.REPAIR && c.taskTarget === 'none') ?? null;" },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

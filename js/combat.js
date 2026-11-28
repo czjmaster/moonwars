@@ -928,7 +928,7 @@ class Combat {
       if (Math.abs(from.y - to.y) < 4) return true;                       // one deck
       return !!enemy.elevators?.findPath?.(c.x, c.y, y);                 // a lift that runs
     };
-    const pickBest = (x, y, skill, urgent = false, force = false) => {
+    const pickBest = (x, y, skill, urgent = false, force = false, vital = false) => {
       // Spiders do NOT crew the hulk they nest in. They were being
       // dispatched to repair modules and fight fires like a proper crew,
       // which is exactly what a nest would never do.
@@ -954,16 +954,30 @@ class Combat {
        * goes — one at a time — and walks back when the job is done. */
       if (!pool.length) {
         const aboard = (c) => c.alive && !c.isPet && !c.isPrisoner && !c.isPlayer && enemy.getRoomById(c.roomId);
-        const spare = enemy.crew.some(c => aboard(c) && !postOf(c) && reach(c, x, y));   // a spare hand who cannot get there is none (update253)
+        /* A SPARE HAND IS A FREE HAND (update269, jj 27.11: „AI załogi wroga zgłupiało… kręcą się"). Any man off a post
+           used to count, so one man in a brawl with our boarder, carrying a body or out at a fire kept the helm from ever
+           going — their oxygen broke, nobody came, and the whole crew choked at their consoles. A man busy with something
+           else is not on his way to this job; only an idle one (or one strolling home) is. */
+        const free = (c) => (c.task === TASK.IDLE || (c.task === TASK.MOVE && c._offPost == null && !c._rescueId && !c.carrying && !c._healing))
+                            && !c._rescueId && !c.carrying && !c._healing && !enemy.roomContested?.(c.roomId);
+        const spare = enemy.crew.some(c => aboard(c) && !postOf(c) && free(c) && reach(c, x, y));   // a spare hand who cannot get there is none (update253)
         const fixing = enemy.crew.some(c => c.alive && c.task === TASK.REPAIR);
         /* A FIRE TAKES THE LAST MAN (update230, jj: „wróg ma priority gasić pożary, teraz
            nieraz zostawia, nie ugasza"). A man already mending a module used to block this
            last resort for every job — so a hull with one hand repairing let the fire burn
            until it ate the room. A fire does not wait behind a repair. */
-        if (!spare && (!fixing || force)) pool = idle.slice();
+        /* …and the reactor (or the last of the air) does not wait behind a repair either (update269): with the one spare
+           hand on the engines, the core stayed down until he was done. */
+        if (!spare && (!fixing || force || vital)) pool = idle.slice();
       }
       if (!pool.length) return null;
+      /* WHICH POST GOES (update269): the shield man first, then a second gunner, then the last gun — the helm last of
+         all. The nearest post-holder used to go, and that was the pilot as often as not: a ship that broke off its
+         evasion to fix the engines next door while the shield man stood idle at his console. */
+      const postRank = (c) => ({ shields: 1, gun: gunnersNow > 1 ? 2 : 3, helm: 4 })[postOf(c)] ?? 0;
       pool.sort((a, b) => {
+        const pa = postRank(a), pb = postRank(b);
+        if (pa !== pb) return pa - pb;
         const da = Utils.dist(a.x, a.y, x, y);
         const db = Utils.dist(b.x, b.y, x, y);
         if (Math.abs(da - db) > 40) return da - db;          // clearly closer wins
@@ -1015,7 +1029,13 @@ class Combat {
       const busy = enemy.crew.some(c =>
         c.task === TASK.FIRE && c.taskTarget === fire);
       if (busy) return;
-      let best = pickBest(fire.x, fire.y, 'firefight', true, true);
+      /* WHO GOES TO A FIRE (update269): a free hand (or the shield man) first; then the man already walking to that
+         very room to mend it — the fire is in his module; only then a post, and last of all a man off another job. */
+      const fireRoom = roomAt(fire.x, fire.y)?.id ?? null;
+      let best = pickBest(fire.x, fire.y, 'firefight', true, false);
+      if (!best) best = enemy.crew.find(c => c.alive && !c.isPet && !c.isPrisoner && !c.isPlayer && !c._healing &&
+                                             c.task === TASK.REPAIR && c.taskTarget === fireRoom) ?? null;
+      if (!best) best = pickBest(fire.x, fire.y, 'firefight', true, true);
       /* …AND A MAN MENDING A MODULE LEAVES IT (update230). `pickBest` only ever looks at
          IDLE hands, and a hand standing in a broken room starts repairing it by himself —
          so the one case jj kept seeing, a small crew with a damaged module and a fire,
@@ -1023,9 +1043,17 @@ class Combat {
          that module again a second later; mending it first is mending nothing. */
       if (!best) {
         const fixers = enemy.crew.filter(c => c.alive && !c.isPet && !c.isPrisoner && !c.isPlayer &&
-                                              !c._healing && c.task === TASK.REPAIR);
-        fixers.sort((a, b) => Utils.dist(a.x, a.y, fire.x, fire.y) - Utils.dist(b.x, b.y, fire.x, fire.y));
-        best = fixers[0] ?? null;
+                                              !c._healing && c.task === TASK.REPAIR && reach(c, fire.x, fire.y));
+        /* …THE RIGHT ONE, AND HE COMES BACK TO IT (update269, jj 27.11: „nie kończą naprawy modułu i idą do
+           następnego"). The nearest fixer was taken whatever he was doing — a man two seconds from the end of a job
+           walked off across the ship and the job went to whoever was nearest later. Now: the man in the burning room
+           first (the fire is in his module), a man about to finish last (`_jobAlmostDone`), the nearest between them;
+           and he remembers the job (`_resumeRepair`) and goes back to it when the fire is out. */
+        const almost = (c) => Combat._jobAlmostDone(enemy, c) ? 1 : 0;
+        fixers.sort((a, b) => ((b.taskTarget === fireRoom) - (a.taskTarget === fireRoom)) || (almost(a) - almost(b)) ||
+                              (Utils.dist(a.x, a.y, fire.x, fire.y) - Utils.dist(b.x, b.y, fire.x, fire.y)));
+        best = fixers.find(c => !almost(c) || c.taskTarget === fireRoom) ?? null;
+        if (best && best.taskTarget !== fireRoom) best._resumeRepair = best.taskTarget;
       }
       if (best) {
         best._offPost = best.homeRoomId ?? null;   // back to his console once it is out
@@ -1061,9 +1089,29 @@ class Combat {
       if (busy) return;
       // Someone already standing in that room? They'll auto-repair it
       // (this keeps the pilot fixing his own cockpit without backup).
-      const inRoom = enemy.crew.some(c => c.alive && !c.isPet && c.roomId === sys.roomId);
-      if (inRoom) return;
-      const best = pickBest(sys.cx, sys.cy, 'repair', sys.type === 'reactor');
+      /* …ONE OF THEIRS, WHO WILL MEND IT (update269). Anybody in the room counted — OUR boarder smashing their oxygen
+         console, a prisoner, a man there to heal — so the one room a boarder was wrecking was the one room their
+         crew never came to. A room with our man in it gets a hand sent (and he fights for it). */
+      const inRoom = enemy.roomContested?.(sys.roomId) ? null :
+                     enemy.crew.find(c => c.alive && !c.isPet && !c.isPrisoner && !c.isPlayer && !c._healing && !c.isPassenger &&
+                                          c.roomId === sys.roomId && c.task === TASK.IDLE && !c._waypoints?.length);
+      /* …AND HE IS PUT ON IT NOW (update269). "He'll auto-repair it" was true one frame later — but the very same pass
+         went on to the next broken module and sent the nearest idle man to it: HIM. A man who had just put out the fire
+         in the engine room, with the engines two levels down, walked the length of the ship to the oxygen plant and back. */
+      if (inRoom) { inRoom.assignTask(TASK.REPAIR, sys.roomId); return; }
+      /* A MAN PULLED TO A FIRE COMES BACK TO HIS JOB (update269) — if he is free and nobody took it meanwhile. */
+      const back = enemy.crew.find(c => c.alive && c._resumeRepair === sys.roomId && c.task === TASK.IDLE && !c._healing);
+      if (back) {
+        back._resumeRepair = null;
+        back.moveToOnShip(enemy, sys.cx, sys.cy);
+        back.assignTask(TASK.REPAIR, sys.roomId);
+        return;
+      }
+      /* THE AIR IS URGENT WHEN IT IS GOING (update269): an oxygen plant out of action with the air below
+         `ENEMY_O2_URGENT` takes a man off the shields, the same as the reactor. */
+      const urgent = sys.type === 'reactor' ||
+                     (sys.type === 'oxygen' && sys.workingLevels <= 0 && (enemy.oxygen?.averageO2?.() ?? 1) < Combat.ENEMY_O2_URGENT);
+      const best = pickBest(sys.cx, sys.cy, 'repair', urgent, false, urgent);
       if (best) {
         best._offPost = best.homeRoomId ?? null;   // he comes back to it (below)
         best.moveToOnShip(enemy, sys.cx, sys.cy);
@@ -1075,6 +1123,9 @@ class Combat {
        done, idle, not wounded: straight to his own console. Left to the
        idle wander he sometimes got there and sometimes did not. */
     enemy.crew.forEach(c => {
+      if (c._resumeRepair != null && (!(enemy.getRoomById(c._resumeRepair)?.system?.damagedLevels > 0) ||
+          enemy.crew.some(o => o !== c && o.alive && o.task === TASK.REPAIR && o.taskTarget === c._resumeRepair))) c._resumeRepair = null;   // done, or somebody took it
+      if (c._resumeRepair != null && c.task === TASK.IDLE) return;      // the repair loop sends him back next tick
       if (c._offPost == null || !c.alive || c.task !== TASK.IDLE || c._healing) return;
       if (c._waypoints?.length) return;
       const home = enemy.getRoomById(c._offPost);
@@ -1357,5 +1408,17 @@ const ENEMY_HEALED  = 0.90;
 /* update172: the line between "engaged" and "źle", and how long calm must
    last before the music believes it. */
 Combat.MOOD = { DANGER_HULL: 0.3, CALM_HOLD: 3 };
+/* update269: below this much air aboard, a dead oxygen plant is as urgent as the reactor. */
+Combat.ENEMY_O2_URGENT = 0.6;
+/** A man two seconds or less from finishing the module he is mending (update269) — a fire does not take him off it. */
+Combat.JOB_ALMOST_SECONDS = 2;
+Combat._jobAlmostDone = function (ship, c) {
+  if (!c || c.task !== TASK.REPAIR) return false;
+  const room = ship.getRoomById(c.taskTarget), sys = room?.system;
+  if (!sys || sys.damagedLevels > 1) return false;
+  if (c.roomId !== room.id) return false;                          // still walking there: not at the end of anything
+  const rate = SYSTEM_REPAIR_RATE * (c.repairSpeed ? c.repairSpeed() : 1);
+  return rate > 0 && (1 - (sys.repairProgress ?? 0)) / rate <= Combat.JOB_ALMOST_SECONDS;
+};
 
 const CombatManager = new Combat();
